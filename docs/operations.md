@@ -10,12 +10,26 @@ has a non-blocking cross-worker flock and a durable 60-minute cooldown. Both are
 on the same volume as the JSON, so multiple users cannot start overlapping refreshes.
 One failed stream retains its previous file; the dashboard displays freshness per stream.
 
-A first ERAS refresh starts with 28 days. For more history, issue the one-time command:
+The first successful ERAS refresh now retrieves the **entire available
+history** for both Classifications and Talk using an all-time daily ERAS
+request (no start date). The complete response is validated before it replaces
+any existing snapshot. Older 28-day snapshots are identified as partial and
+will be upgraded automatically. Future refreshes only reconcile the latest
+14 days, avoiding expensive repeat historical requests.
+
+To initialize from the CLI instead of the web button, use:
 
 ```bash
-zooniverse-dashboard backfill --source classifications --start 2025-01-01
-zooniverse-dashboard backfill --source talks --start 2025-01-01
+zooniverse-dashboard backfill --source classifications
+zooniverse-dashboard backfill --source talks
 ```
+
+`--start YYYY-MM-DD` remains available for an **explicitly partial**, bounded
+historical import if the all-time request cannot complete. These snapshots
+are marked partial rather than represented as all-time statistics. A later
+normal refresh will attempt a complete-history upgrade. A failed collection
+leaves the last valid snapshot unchanged. All-time responses have strict
+response-size and date-count limits, and are never silently truncated.
 
 Run it against the deployed container volume, not an ephemeral one. Explicit backfills
 also use the shared lock, and may take much longer than web requests. Do not scale to

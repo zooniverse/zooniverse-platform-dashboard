@@ -12,7 +12,12 @@ from pathlib import Path
 from typing import Iterator
 
 from zooniverse_dashboard.config import data_dir
-from zooniverse_dashboard.eras import fetch_classifications, fetch_comments
+from zooniverse_dashboard.eras import (
+    fetch_classifications,
+    fetch_comments,
+    fetch_full_classifications,
+    fetch_full_comments,
+)
 from zooniverse_dashboard.snapshots import SOURCES, _atomic_publish, load_snapshot, publish_snapshot
 from zooniverse_dashboard.sources import fetch_panoptes
 
@@ -111,16 +116,20 @@ def refresh_source(
     root: Path | None = None,
     backfill_start: date | None = None,
     now: datetime | None = None,
+    force_full_history: bool = False,
 ):
     """Produce a complete daily-count JSON snapshot from one approved source.
 
-    For first ERAS refresh, initialize the most recent 28 complete days only.
-    An explicit CLI backfill is required for full-year historical KPI coverage.
-    Existing ERAS history is reconciled over 14 days on every refresh.
+    The first ERAS refresh retrieves all available history in one bounded API
+    response. Older partial snapshots are upgraded automatically. A complete
+    snapshot is thereafter reconciled over the latest 14 days only.
     """
     folder = root if root is not None else data_dir()
     if source not in SOURCES:
         raise ValueError("Invalid analytics stream")
+    if backfill_start is not None and force_full_history:
+        raise ValueError("Cannot combine a date-limited backfill with full history")
+    complete = True
     if source == "users":
         counts = fetch_panoptes(through=through)
     else:
@@ -131,18 +140,26 @@ def refresh_source(
         if backfill_start is not None:
             if backfill_start > through:
                 raise ValueError("Invalid backfill date")
-            start = backfill_start
-            counts = {}
-        elif previous is None:
-            start = through - timedelta(days=27)
-            counts = {}
+            # Explicit date-limited CLI backfill; never claim this is all-time.
+            counts = _fetch_eras_range(source, backfill_start, through)
+            complete = False
+        elif force_full_history or previous is None or not previous.history_complete:
+            fetcher = (
+                fetch_full_classifications if source == "classifications" else fetch_full_comments
+            )
+            result = fetcher(through)
+            if result.end != through or result.reported_total != result.observed_total:
+                raise ValueError("ERAS full-history aggregate failed validation")
+            counts = dict(result.calendar_series())
         else:
             if through < previous.last:
                 raise ValueError("Cannot move reporting cutoff backward")
-            start = max(previous.first, previous.last - timedelta(days=13))
             counts = previous.counts()
-        counts.update(_fetch_eras_range(source, start, through))
-    return publish_snapshot(source, counts, through=through, root=folder, now=now)
+            start = max(previous.first, previous.last - timedelta(days=13))
+            counts.update(_fetch_eras_range(source, start, through))
+    return publish_snapshot(
+        source, counts, through=through, root=folder, now=now, history_complete=complete
+    )
 
 
 def refresh_all(*, root: Path | None = None, now: datetime | None = None) -> dict:

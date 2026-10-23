@@ -35,8 +35,8 @@ def layout_for(source: str):
                 html.H1(title),
                 html.Div(
                     "No valid aggregate snapshot yet. Click Refresh data to initialize the "
-                    "available history. ERAS sources begin with 28 days; a deliberate "
-                    "historical backfill is available from the command line.",
+                    "available history. The initial ERAS refresh requests the full "
+                    "available daily history; an unusually large or invalid response is rejected.",
                     className="notice",
                 ),
             ]
@@ -86,6 +86,15 @@ def layout_for(source: str):
                     snapshot.last.isoformat(),
                 ],
                 className="notice",
+            ),
+            (
+                html.Div(
+                    "Historical coverage is partial; use Refresh data to retrieve the "
+                    "complete ERAS history.",
+                    className="notice notice-warning",
+                )
+                if source != "users" and not snapshot.history_complete
+                else None
             ),
             (
                 html.Div(

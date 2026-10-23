@@ -27,22 +27,25 @@ Open <http://127.0.0.1:8050/>. The first visit displays an empty-state message u
 refresh succeeds; the application never loads database records while rendering pages.
 
 The **Refresh data** button makes one approved Panoptes full-history aggregation and
-retrieves recent ERAS daily aggregates. A global, one-hour cooldown and POSIX file lock
+retrieves full ERAS history on the first refresh (and recent days thereafter).
+A global, one-hour cooldown and POSIX file lock
 prevent concurrent or repeated refreshes. Each successful snapshot includes
 `last_modified_utc`; the dashboard shows its actual timestamp and warns when the
 coverage is behind the last completed UTC day. A partial failure preserves good files.
 
-The first ERAS refresh initializes the last **28 complete days**, deliberately avoiding
-an unexpected historical backfill. To enable annual KPIs, run a one-time explicit backfill:
+On the **first ERAS refresh**, the collector requests **all available daily
+classification and Talk comment history**, rather than only 28 days. It uses
+one public all-time request per source (no `start_date`), validates that the
+reported total equals the sum of its daily buckets, and fills omitted dates
+within the observed history with zero. Subsequent refreshes reconcile the
+latest 14 days only. Existing 28-day snapshots are recognized as partial and
+upgraded on the next successful refresh; the last valid files are preserved
+if the initial full-history request fails.
 
-```bash
-zooniverse-dashboard backfill --source classifications --start 2025-01-01
-zooniverse-dashboard backfill --source talks --start 2025-01-01
-```
-
-Backfills are limited to 48 ERAS API requests per invocation (35 days/request). For
-longer histories, choose a suitable staged window. Missing historical coverage is
-shown as `—`, never treated as zero.
+If an ERAS full-history response is too large or slow, the collector will
+**fail safely**, rather than silently publishing an incomplete history. In that
+case, consult the [operations guide](docs/operations.md) before attempting a
+bounded manual backfill.
 
 ## Docker: one service and one persistent volume
 
@@ -52,7 +55,7 @@ cp .env.example .env  # edit safely; do not commit
 docker compose -f deploy/compose.yml up --build -d
 # For an explicit initial ERAS historical backfill:
 docker compose -f deploy/compose.yml exec dashboard \
-  zooniverse-dashboard backfill --source classifications --start 2025-01-01
+  zooniverse-dashboard backfill --source classifications
 ```
 
 The container keeps `users.json`, `classifications.json`, `talks.json`, and
@@ -94,11 +97,19 @@ for one access-controlled instance, not a public site.
 
 ## Development
 
+Run formatting, linting, tests and the documentation build directly:
+
 ```bash
-make format
-make check
-make docs
+black app.py src tests
+ruff check --fix app.py src tests
+black --check app.py src tests
+ruff check app.py src tests
+pytest -q
+sphinx-build -b html docs docs/_build/html
 ```
+
+The documentation uses the **Furo** theme and **Sphinx AutoAPI**, which
+creates a navigable reference from the source without importing runtime code.
 
 ## Production caveats
 

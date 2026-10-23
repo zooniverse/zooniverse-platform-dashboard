@@ -18,8 +18,9 @@ timeout, a 250-ms lock timeout, and no retry. It returns aggregated buckets, not
 individual user timestamps. The configured database account must also be read-only.
 
 ERAS uses public unauthenticated endpoints for classifications and Talk comment
-daily totals. It never requests volunteer-level records or discussion text. Response
-sizes and date ranges are bounded. Missing ERAS date buckets are zero-filled
+daily totals. It never requests volunteer-level records or discussion text. Response sizes and returned daily bucket counts are bounded; initial
+all-time requests have no start date but enforce a maximum response size,
+calendar span and reported-total consistency. Missing ERAS date buckets are zero-filled
 as provisional zero counts, not proof of no activity. Error details, credentials,
 response bodies and SQL messages are not stored or displayed.
 

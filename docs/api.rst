@@ -1,23 +1,11 @@
 API reference
 =============
 
-.. automodule:: zooniverse_dashboard.snapshots
-   :members:
+The API pages below are generated from the Python source, grouped by modules,
+classes and functions. Documentation generation does not import the application
+or access any production service.
 
-.. automodule:: zooniverse_dashboard.sources
-   :members:
+.. toctree::
+   :maxdepth: 2
 
-.. automodule:: zooniverse_dashboard.eras
-   :members:
-
-.. automodule:: zooniverse_dashboard.refresh
-   :members:
-
-.. automodule:: zooniverse_dashboard.periods
-   :members:
-
-.. automodule:: zooniverse_dashboard.detection
-   :members:
-
-.. automodule:: zooniverse_dashboard.ui
-   :members:
+   generated/zooniverse_dashboard/index

@@ -24,7 +24,16 @@ def test_publication_roundtrip_and_last_modified(tmp_path):
     assert read.last_modified == NOW
     doc = json.loads((tmp_path / "users.json").read_text())
     assert doc["last_modified_utc"] == NOW.isoformat()
-    assert set(doc) == {"format", "source", "first", "last", "as_of", "last_modified_utc", "daily"}
+    assert set(doc) == {
+        "format",
+        "source",
+        "first",
+        "last",
+        "as_of",
+        "last_modified_utc",
+        "daily",
+        "history_complete",
+    }
     assert "email" not in str(doc).lower()
     again = NOW + timedelta(minutes=5)
     publish_snapshot("users", values, through=max(values), root=tmp_path, now=again)
@@ -85,3 +94,18 @@ def test_incomplete_history_is_unavailable(tmp_path):
     snap = publish_snapshot("talks", sample(), through=date(2026, 10, 22), root=tmp_path, now=NOW)
     periods = {p.key: p for p in calendar_periods(snap)}
     assert periods["previous-year"].count is None
+
+
+def test_legacy_snapshot_requires_history_upgrade(tmp_path):
+    values = sample()
+    publish_snapshot("classifications", values, through=max(values), root=tmp_path, now=NOW)
+    path = tmp_path / "classifications.json"
+    doc = json.loads(path.read_text())
+    del doc["history_complete"]
+    path.write_text(json.dumps(doc))
+    snap = load_snapshot("classifications", root=tmp_path)
+    assert snap.history_complete is False
+    doc["history_complete"] = "yes"
+    path.write_text(json.dumps(doc))
+    with pytest.raises(ValueError, match="history coverage"):
+        load_snapshot("classifications", root=tmp_path)

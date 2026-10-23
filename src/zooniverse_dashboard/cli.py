@@ -12,7 +12,7 @@ def main():
     commands.add_parser("refresh", help="Refresh all sources with durable cooldown")
     backfill = commands.add_parser("backfill", help="Explicitly fetch older ERAS history")
     backfill.add_argument("--source", required=True, choices=("classifications", "talks"))
-    backfill.add_argument("--start", type=date.fromisoformat, required=True)
+    backfill.add_argument("--start", type=date.fromisoformat)
     backfill.add_argument(
         "--through",
         type=date.fromisoformat,
@@ -24,7 +24,12 @@ def main():
         print("Refresh result:", result["state"], result["streams"])
     else:
         with refresh_lock():
-            snapshot = refresh_source(args.source, through=args.through, backfill_start=args.start)
+            snapshot = refresh_source(
+                args.source,
+                through=args.through,
+                backfill_start=args.start,
+                force_full_history=args.start is None,
+            )
         print(
             f"{args.source}: {snapshot.first}–{snapshot.last} "
             f"last modified {snapshot.last_modified.isoformat()}"

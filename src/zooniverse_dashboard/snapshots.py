@@ -28,6 +28,7 @@ class Snapshot:
     as_of: date
     last_modified: datetime
     daily: tuple[tuple[date, int], ...]
+    history_complete: bool = False
 
     def counts(self) -> dict[date, int]:
         return dict(self.daily)
@@ -40,18 +41,20 @@ def snapshot_path(source: str, root: Path | None = None) -> Path:
 
 
 def _parse(doc: object, expected: str) -> Snapshot:
-    if not isinstance(doc, dict) or set(doc) != {
-        "format",
-        "source",
-        "first",
-        "last",
-        "as_of",
-        "last_modified_utc",
-        "daily",
-    }:
+    required = {"format", "source", "first", "last", "as_of", "last_modified_utc", "daily"}
+    if (
+        not isinstance(doc, dict)
+        or not required <= set(doc)
+        or set(doc) - required - {"history_complete"}
+    ):
         raise ValueError("Invalid aggregate snapshot envelope")
     if doc["format"] != FORMAT or doc["source"] != expected or expected not in SOURCES:
         raise ValueError("Unexpected aggregate snapshot source")
+    # Legacy ERAS files had no completeness marker: treat these as partial,
+    # and upgrade them on the next successful all-history refresh.
+    complete = doc.get("history_complete", False)
+    if type(complete) is not bool:
+        raise ValueError("Invalid history coverage marker")
     first = date.fromisoformat(doc["first"])
     last = date.fromisoformat(doc["last"])
     as_of = date.fromisoformat(doc["as_of"])
@@ -76,7 +79,7 @@ def _parse(doc: object, expected: str) -> Snapshot:
         ):
             raise ValueError("Invalid aggregate daily bucket")
         daily.append((day, row[1]))
-    return Snapshot(expected, first, last, as_of, modified, tuple(daily))
+    return Snapshot(expected, first, last, as_of, modified, tuple(daily), complete)
 
 
 def load_snapshot(source: str, *, root: Path | None = None) -> Snapshot:
@@ -118,6 +121,7 @@ def publish_snapshot(
     through: date,
     root: Path | None = None,
     now: datetime | None = None,
+    history_complete: bool = True,
 ) -> Snapshot:
     """Validate and atomically save daily counts; record *each* successful refresh.
 
@@ -127,6 +131,8 @@ def publish_snapshot(
     stamp = now or datetime.now(timezone.utc)
     if stamp.tzinfo is None or through >= stamp.astimezone(timezone.utc).date():
         raise ValueError("Reporting cutoff must be a completed UTC day")
+    if type(history_complete) is not bool:
+        raise ValueError("Invalid history coverage marker")
     if not counts or any(type(v) is not int or v < 0 for v in counts.values()):
         raise ValueError("Invalid aggregate counts")
     if any(not isinstance(d, date) or isinstance(d, datetime) for d in counts):
@@ -146,6 +152,7 @@ def publish_snapshot(
         "last": through.isoformat(),
         "as_of": (through + timedelta(days=1)).isoformat(),
         "last_modified_utc": stamp.astimezone(timezone.utc).isoformat(),
+        "history_complete": history_complete,
         "daily": [[d.isoformat(), counts[d]] for d in sorted(counts)],
     }
     parsed = _parse(doc, source)
