@@ -1,0 +1,18 @@
+services:
+  dashboard:
+    build:
+      context: ..
+    restart: unless-stopped
+    init: true
+    env_file:
+      - ../.env
+    environment:
+      ANALYTICS_DATA_DIR: /data
+      DASH_DEBUG: "false"
+    volumes:
+      - analytics_data:/data
+    # Dashboard must be exposed only through access-controlled ingress.
+    ports:
+      - "127.0.0.1:8050:8050"
+volumes:
+  analytics_data:

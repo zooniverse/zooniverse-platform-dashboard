@@ -1,0 +1,17 @@
+.git
+.env
+.env.*
+!.env.example
+.local
+/data
+.venv
+venv
+__pycache__
+.pytest_cache
+.ruff_cache
+*.sqlite*
+*.csv
+*.tsv
+*.sql
+*.zip
+docs/_build
