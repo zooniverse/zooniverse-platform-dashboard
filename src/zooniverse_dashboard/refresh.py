@@ -1,4 +1,5 @@
 """Single-volume refresh coordination, ERAS reconciliation and safe status metadata."""
+
 from __future__ import annotations
 
 import fcntl
@@ -12,9 +13,7 @@ from typing import Iterator
 
 from zooniverse_dashboard.config import data_dir
 from zooniverse_dashboard.eras import fetch_classifications, fetch_comments
-from zooniverse_dashboard.snapshots import (
-    SOURCES, _atomic_publish, load_snapshot, publish_snapshot
-)
+from zooniverse_dashboard.snapshots import SOURCES, _atomic_publish, load_snapshot, publish_snapshot
 from zooniverse_dashboard.sources import fetch_panoptes
 
 STATUS_FORMAT = "ZOONIVERSE_REFRESH_STATUS_V1"
@@ -32,7 +31,9 @@ def refresh_lock(root: Path | None = None) -> Iterator[None]:
     """POSIX flock shared by all Gunicorn workers on ONE mounted volume."""
     folder = root if root is not None else data_dir()
     folder.mkdir(parents=True, exist_ok=True, mode=0o700)
-    fd = os.open(folder / ".refresh.lock", os.O_RDWR | os.O_CREAT | getattr(os, "O_NOFOLLOW", 0), 0o600)
+    fd = os.open(
+        folder / ".refresh.lock", os.O_RDWR | os.O_CREAT | getattr(os, "O_NOFOLLOW", 0), 0o600
+    )
     try:
         if not stat.S_ISREG(os.fstat(fd).st_mode):
             raise RefreshRejected("Invalid refresh lock")
@@ -52,12 +53,15 @@ def load_status(root: Path | None = None) -> dict | None:
     if path.is_symlink() or not path.is_file() or path.stat().st_size > 4096:
         raise ValueError("Invalid refresh status")
     doc = json.loads(path.read_text(encoding="utf-8"))
-    if (not isinstance(doc, dict) or set(doc) != {
-        "format", "started_at_utc", "finished_at_utc", "state", "streams"
-    } or doc["format"] != STATUS_FORMAT
+    if (
+        not isinstance(doc, dict)
+        or set(doc) != {"format", "started_at_utc", "finished_at_utc", "state", "streams"}
+        or doc["format"] != STATUS_FORMAT
         or doc["state"] not in {"running", "ok", "partial_failure"}
-        or not isinstance(doc["streams"], dict) or set(doc["streams"]) != set(SOURCES)
-        or any(value not in {"pending", "ok", "failed"} for value in doc["streams"].values())):
+        or not isinstance(doc["streams"], dict)
+        or set(doc["streams"]) != set(SOURCES)
+        or any(value not in {"pending", "ok", "failed"} for value in doc["streams"].values())
+    ):
         raise ValueError("Invalid refresh status")
     for key in ("started_at_utc", "finished_at_utc"):
         if doc[key] is not None:
@@ -88,8 +92,11 @@ def _fetch_eras_range(source: str, start: date, through: date) -> dict[date, int
         if requests > MAX_ERAS_REQUESTS:
             raise ValueError("ERAS backfill too large for a single request")
         response = fetcher(current, upper)
-        if (response.start != current or response.end != upper
-                or response.reported_total != response.observed_total):
+        if (
+            response.start != current
+            or response.end != upper
+            or response.reported_total != response.observed_total
+        ):
             raise ValueError("ERAS aggregate response failed validation")
         for day, count in response.calendar_series():
             result[day] = count
@@ -98,8 +105,12 @@ def _fetch_eras_range(source: str, start: date, through: date) -> dict[date, int
 
 
 def refresh_source(
-    source: str, *, through: date, root: Path | None = None,
-    backfill_start: date | None = None, now: datetime | None = None,
+    source: str,
+    *,
+    through: date,
+    root: Path | None = None,
+    backfill_start: date | None = None,
+    now: datetime | None = None,
 ):
     """Produce a complete daily-count JSON snapshot from one approved source.
 
@@ -164,8 +175,7 @@ def refresh_all(*, root: Path | None = None, now: datetime | None = None) -> dic
                 # Never expose URLs, SQL exception strings or API response bodies.
                 status["streams"][source] = "failed"
         status["state"] = (
-            "ok" if all(x == "ok" for x in status["streams"].values())
-            else "partial_failure"
+            "ok" if all(x == "ok" for x in status["streams"].values()) else "partial_failure"
         )
         status["finished_at_utc"] = datetime.now(timezone.utc).isoformat()
         _write_status(folder, status)

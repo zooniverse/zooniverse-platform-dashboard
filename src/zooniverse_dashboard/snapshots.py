@@ -1,4 +1,5 @@
 """Validated, aggregate-only daily snapshots and atomic durable publication."""
+
 from __future__ import annotations
 
 import json
@@ -40,7 +41,13 @@ def snapshot_path(source: str, root: Path | None = None) -> Path:
 
 def _parse(doc: object, expected: str) -> Snapshot:
     if not isinstance(doc, dict) or set(doc) != {
-        "format", "source", "first", "last", "as_of", "last_modified_utc", "daily"
+        "format",
+        "source",
+        "first",
+        "last",
+        "as_of",
+        "last_modified_utc",
+        "daily",
     }:
         raise ValueError("Invalid aggregate snapshot envelope")
     if doc["format"] != FORMAT or doc["source"] != expected or expected not in SOURCES:
@@ -60,9 +67,13 @@ def _parse(doc: object, expected: str) -> Snapshot:
     daily = []
     for i, row in enumerate(rows):
         day = first + timedelta(days=i)
-        if (not isinstance(row, list) or len(row) != 2
-                or row[0] != day.isoformat()
-                or type(row[1]) is not int or row[1] < 0):
+        if (
+            not isinstance(row, list)
+            or len(row) != 2
+            or row[0] != day.isoformat()
+            or type(row[1]) is not int
+            or row[1] < 0
+        ):
             raise ValueError("Invalid aggregate daily bucket")
         daily.append((day, row[1]))
     return Snapshot(expected, first, last, as_of, modified, tuple(daily))

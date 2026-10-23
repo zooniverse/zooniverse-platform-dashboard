@@ -1,4 +1,5 @@
 """Sphinx build: importable modules must not perform network access."""
+
 import sys
 from pathlib import Path
 

@@ -4,7 +4,7 @@ The production-oriented application is intentionally small. It reads **only vali
 aggregate JSON files** for page rendering and supports authorized on-demand refresh.
 
 ```{toctree}
-:maxdepth: 2
+:maxdepth: 1
 
 architecture
 operations

@@ -1,4 +1,5 @@
 """Fixed, aggregate-only remote sources. No individual users or classifications."""
+
 from datetime import date, datetime, time, timedelta
 
 from sqlalchemy import create_engine, text
@@ -8,10 +9,10 @@ from zooniverse_dashboard.config import panoptes_url
 
 # No dynamic table names or identifiers from outside this module.
 REGISTRATIONS_SQL = text(
-    'SELECT created_at::date AS day, COUNT(*)::bigint AS registrations '
+    "SELECT created_at::date AS day, COUNT(*)::bigint AS registrations "
     'FROM public."users" WHERE created_at IS NOT NULL '
-    'AND created_at < :end_exclusive '
-    'GROUP BY created_at::date ORDER BY day'
+    "AND created_at < :end_exclusive "
+    "GROUP BY created_at::date ORDER BY day"
 )
 
 
@@ -37,12 +38,20 @@ def fetch_panoptes(*, through: date) -> dict[date, int]:
             raise ValueError("No registration aggregates returned")
         values: dict[date, int] = {}
         for day, count in rows:
-            if (not isinstance(day, date) or isinstance(day, datetime) or day > through
-                    or type(count) is not int or count < 0 or day in values):
+            if (
+                not isinstance(day, date)
+                or isinstance(day, datetime)
+                or day > through
+                or type(count) is not int
+                or count < 0
+                or day in values
+            ):
                 raise ValueError("Unexpected registration aggregate")
             values[day] = count
         first = min(values)
-        return {first + timedelta(days=i): values.get(first + timedelta(days=i), 0)
-                for i in range((through - first).days + 1)}
+        return {
+            first + timedelta(days=i): values.get(first + timedelta(days=i), 0)
+            for i in range((through - first).days + 1)
+        }
     finally:
         engine.dispose()

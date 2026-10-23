@@ -1,11 +1,14 @@
 """Dash integration test when the optional runtime is available."""
+
 import json
+
 import pytest
 
 
 def test_root_redirect_and_refresh_control():
     pytest.importorskip("dash")
     from zooniverse_dashboard.app import app
+
     client = app.server.test_client()
     response = client.get("/")
     assert response.status_code in (301, 302, 307, 308)

@@ -1,4 +1,5 @@
 """Server-side paths and environment configuration; never expose database URLs to Dash."""
+
 import os
 from pathlib import Path
 

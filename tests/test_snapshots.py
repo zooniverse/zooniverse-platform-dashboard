@@ -1,4 +1,5 @@
 """Aggregate-only snapshot contract, persistence, freshness and privacy."""
+
 import json
 from datetime import date, datetime, timedelta, timezone
 
@@ -36,16 +37,18 @@ def test_reject_missing_days_and_invalid_counts(tmp_path):
     with pytest.raises(ValueError):
         publish_snapshot("users", values, through=max(values), root=tmp_path, now=NOW)
     with pytest.raises(ValueError):
-        publish_snapshot("users", {date(2026, 10, 22): -1}, through=date(2026, 10, 22), root=tmp_path, now=NOW)
+        publish_snapshot(
+            "users", {date(2026, 10, 22): -1}, through=date(2026, 10, 22), root=tmp_path, now=NOW
+        )
     assert not (tmp_path / "users.json").exists()
 
 
 def test_corrupt_destination_preserved(tmp_path):
     path = tmp_path / "users.json"
-    path.write_text('not a valid snapshot')
+    path.write_text("not a valid snapshot")
     with pytest.raises(ValueError):
         publish_snapshot("users", sample(), through=date(2026, 10, 22), root=tmp_path, now=NOW)
-    assert path.read_text() == 'not a valid snapshot'
+    assert path.read_text() == "not a valid snapshot"
 
 
 def test_reject_symlink(tmp_path):
@@ -53,14 +56,16 @@ def test_reject_symlink(tmp_path):
     target.write_text("untouched")
     (tmp_path / "users.json").symlink_to(target)
     with pytest.raises(ValueError):
-        publish_snapshot("users", {date(2026, 10, 22): 2}, through=date(2026, 10, 22), root=tmp_path, now=NOW)
+        publish_snapshot(
+            "users", {date(2026, 10, 22): 2}, through=date(2026, 10, 22), root=tmp_path, now=NOW
+        )
     assert target.read_text() == "untouched"
 
 
 def test_calendar_periods_and_panning(tmp_path):
     first = date(2025, 1, 1)
     through = date(2026, 10, 22)
-    counts = {first + timedelta(days=i): 1 for i in range((through-first).days+1)}
+    counts = {first + timedelta(days=i): 1 for i in range((through - first).days + 1)}
     snap = publish_snapshot("users", counts, through=through, root=tmp_path, now=NOW)
     periods = {p.key: p for p in calendar_periods(snap)}
     assert periods["yesterday"].count == 1
@@ -68,14 +73,15 @@ def test_calendar_periods_and_panning(tmp_path):
     assert periods["previous-week"].count == 7
     assert periods["month"].count == 22
     assert periods["previous-month"].count == 30
-    assert periods["year"].count == (through - date(2026,1,1)).days+1
+    assert periods["year"].count == (through - date(2026, 1, 1)).days + 1
     assert periods["previous-year"].count == 365
-    assert visible_date_range(first=snap.first,last=snap.last,window="7") == (
-        date(2026,10,16), date(2026,10,22)
+    assert visible_date_range(first=snap.first, last=snap.last, window="7") == (
+        date(2026, 10, 16),
+        date(2026, 10, 22),
     )
 
 
 def test_incomplete_history_is_unavailable(tmp_path):
-    snap = publish_snapshot("talks", sample(), through=date(2026,10,22), root=tmp_path, now=NOW)
+    snap = publish_snapshot("talks", sample(), through=date(2026, 10, 22), root=tmp_path, now=NOW)
     periods = {p.key: p for p in calendar_periods(snap)}
     assert periods["previous-year"].count is None
