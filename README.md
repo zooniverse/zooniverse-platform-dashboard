@@ -54,6 +54,14 @@ volume override, then environment, then all-time default. Changing the limit
 does not refresh data automatically, and the dashboard warns until new
 snapshots match. See [operations](docs/operations.md).
 
+### Refresh diagnostics
+
+`refresh-data` prints UTC-timestamped progress for all three sources, including
+fetch duration, snapshot publication and the overall outcome. The dashboard's
+**Refresh data** button uses the same logger, visible in the web server's
+standard error / container logs. Secrets and raw exceptions are deliberately
+omitted. See [refresh logs and diagnostics](docs/operations.md#refresh-logs-and-diagnostics).
+
 ## Docker: one service and one persistent volume
 
 ```bash

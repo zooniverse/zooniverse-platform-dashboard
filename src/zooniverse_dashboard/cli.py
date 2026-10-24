@@ -5,14 +5,24 @@ from __future__ import annotations
 import argparse
 
 from zooniverse_dashboard.collection_config import effective_history_days, set_history_days
-from zooniverse_dashboard.refresh import refresh_all, refresh_lock
+from zooniverse_dashboard.logging_utils import configure_refresh_logging
+from zooniverse_dashboard.refresh import RefreshRejected, refresh_all, refresh_lock
 
 
 def refresh_data() -> None:
     """Refresh all daily snapshots with the shared lock and cooldown."""
     argparse.ArgumentParser(description="Refresh all Zooniverse aggregate snapshots").parse_args()
-    result = refresh_all()
-    print("Refresh result:", result["state"], result["streams"])
+    logger = configure_refresh_logging()
+    try:
+        result = refresh_all()
+    except RefreshRejected:
+        logger.error("event=refresh_cli_exit result=rejected")
+        raise SystemExit(2) from None
+    except Exception:
+        # refresh_all already emitted a sanitized diagnostic with code locations.
+        logger.error("event=refresh_cli_exit result=aborted")
+        raise SystemExit(1) from None
+    logger.info("event=refresh_cli_exit result=%s", result["state"])
     if result["state"] != "ok":
         raise SystemExit(1)
 

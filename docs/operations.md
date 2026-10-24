@@ -95,3 +95,45 @@ ingress (SSO/VPN/reverse proxy).
 `/healthz` indicates process availability, not snapshot freshness. No
 scheduled collection service, separate bucket, or CI deployment workflow is
 installed.
+
+## Refresh logs and diagnostics
+
+Both entry points—`refresh-data` in the terminal and **Refresh data** in the
+web dashboard—use the same refresh coordinator and log the same operational
+steps. Logs go to **standard error** (shown in a terminal and captured by
+Docker/Gunicorn logging). Nothing writes a separate log file to the analytics
+volume.
+
+```bash
+refresh-data
+# Or observe the web application's output:
+docker compose -f deploy/compose.yml logs -f dashboard
+```
+
+Each line has a UTC timestamp, severity and an `event=` key. A refresh is given
+an ephemeral `run=` identifier to correlate the source events. Expected events
+include `refresh_requested`, `refresh_started`, `source_fetch_started`,
+`source_fetch_completed`, `snapshot_published`, `source_succeeded` and
+`refresh_finished`. Recorded fields include the UTC reporting cutoff, effective
+history limit, source name, bucket count, **aggregate** total, snapshot
+coverage, and elapsed milliseconds. A successful snapshot publication is logged
+*after* atomic replacement of its JSON file.
+
+On source failure, logging records its **stage** (`fetch_and_validate` versus
+`snapshot_publication`), exception **class** and a sanitized chain of Python
+source-file/function/line locations. These are useful when investigating failures
+without capturing production user records. The logger **does not** print raw
+exception messages, SQL parameters, database URLs, HTTP response bodies,
+credentials, or Python locals. For example, a low-level PostgreSQL error may
+appear as `error_type=OperationalError`, not its potentially sensitive message.
+If the exact database error is needed, investigate it through an authorized DBA
+workflow rather than enabling unsanitized exception logging.
+
+A second click during the one-hour cooldown logs `refresh_rejected`. Failed
+sources retain their previous valid JSON; an attempt with partial failures logs
+`state=partial_failure` and `refresh-data` returns exit status 1. A rejected
+CLI attempt returns exit status 2. Successful CLI runs return exit status 0.
+The existing `refresh_status.json` remains the minimal persistent status file:
+it is *not* an exhaustive audit log. For historical troubleshooting, rely on the
+container platform's log retention and access controls. Avoid routing logs into
+public or unprotected storage.

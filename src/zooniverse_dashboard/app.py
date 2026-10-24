@@ -1,18 +1,22 @@
 """Application factory. Importing Dash never connects to Panoptes or ERAS."""
 
+import logging
 from pathlib import Path
 
 from dash import Dash, Input, Output, dcc, html, page_container, page_registry
 from flask import redirect, request
 
 from zooniverse_dashboard.collection_config import effective_history_days
+from zooniverse_dashboard.logging_utils import configure_refresh_logging
 from zooniverse_dashboard.refresh import RefreshRejected, load_status, refresh_all
 from zooniverse_dashboard.snapshots import SOURCES, load_snapshot
 
 PACKAGE_DIR = Path(__file__).resolve().parent
+LOG = logging.getLogger("zooniverse_dashboard.refresh")
 
 
 def create_app() -> Dash:
+    configure_refresh_logging()
     app = Dash(
         __name__,
         use_pages=True,
@@ -67,6 +71,7 @@ def create_app() -> Dash:
         prevent_initial_call=True,
     )
     def do_refresh(_clicks):
+        LOG.info("event=web_refresh_button_clicked")
         try:
             result = refresh_all()
             if result["state"] == "ok":
@@ -75,6 +80,7 @@ def create_app() -> Dash:
         except RefreshRejected as exc:
             return str(exc)
         except Exception:
+            # No raw exception strings are returned to the browser or logged.
             return "Refresh unavailable; contact the dashboard operator."
 
     @app.callback(

@@ -4,8 +4,11 @@ from __future__ import annotations
 
 import fcntl
 import json
+import logging
 import os
 import stat
+import time
+import uuid
 from contextlib import contextmanager
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
@@ -19,11 +22,13 @@ from zooniverse_dashboard.eras import (
     fetch_window_classifications,
     fetch_window_comments,
 )
+from zooniverse_dashboard.logging_utils import safe_error_trace
 from zooniverse_dashboard.snapshots import MAX_DAYS, SOURCES, _atomic_publish, publish_snapshot
 from zooniverse_dashboard.sources import fetch_panoptes
 
 STATUS_FORMAT = "ZOONIVERSE_REFRESH_STATUS_V1"
 COOLDOWN_MINUTES = 60
+LOG = logging.getLogger("zooniverse_dashboard.refresh")
 
 
 class RefreshRejected(ValueError):
@@ -92,84 +97,173 @@ def refresh_source(
 ):
     """Replace one entire configured history window with validated aggregates.
 
-    No incremental/backfill workflow is used: even existing snapshots are
-    refreshed over the full selected range on each successful call.
+    Each step is logged without emitting database records, URL strings, raw
+    remote exceptions, SQL parameters or API payloads.
     """
+    started = time.perf_counter()
+    phase = "validate"
     folder = root if root is not None else data_dir()
-    if source not in SOURCES:
-        raise ValueError("Invalid analytics stream")
-    days = effective_history_days(folder) if history_days is None else history_days
-    if type(days) is not int or not 0 <= days <= MAX_DAYS:
-        raise ValueError("Invalid history limit")
-    if source == "users":
-        counts = fetch_panoptes(through=through, history_days=days)
-    else:
-        if days == 0:
-            fetcher = (
-                fetch_full_classifications if source == "classifications" else fetch_full_comments
-            )
-            result = fetcher(through)
-            if result.end != through or result.reported_total != result.observed_total:
-                raise ValueError("ERAS full-history aggregate failed validation")
+    try:
+        if source not in SOURCES:
+            raise ValueError("Invalid analytics stream")
+        days = effective_history_days(folder) if history_days is None else history_days
+        if type(days) is not int or not 0 <= days <= MAX_DAYS:
+            raise ValueError("Invalid history limit")
+        LOG.info(
+            "event=source_fetch_started source=%s through=%s history_days=%d",
+            source,
+            through.isoformat(),
+            days,
+        )
+        phase = "fetch_and_validate"
+        if source == "users":
+            counts = fetch_panoptes(through=through, history_days=days)
         else:
-            start = through - timedelta(days=days - 1)
-            fetcher = (
-                fetch_window_classifications
-                if source == "classifications"
-                else fetch_window_comments
-            )
-            result = fetcher(start, through)
-            if (
-                result.start != start
-                or result.end != through
-                or result.reported_total != result.observed_total
-            ):
-                raise ValueError("ERAS date-range aggregate failed validation")
-        counts = dict(result.calendar_series())
-    return publish_snapshot(
-        source,
-        counts,
-        through=through,
-        root=folder,
-        now=now,
-        history_complete=(days == 0),
-        history_days=days,
-    )
+            if days == 0:
+                fetcher = (
+                    fetch_full_classifications
+                    if source == "classifications"
+                    else fetch_full_comments
+                )
+                result = fetcher(through)
+                if result.end != through or result.reported_total != result.observed_total:
+                    raise ValueError("ERAS full-history aggregate failed validation")
+            else:
+                start = through - timedelta(days=days - 1)
+                fetcher = (
+                    fetch_window_classifications
+                    if source == "classifications"
+                    else fetch_window_comments
+                )
+                result = fetcher(start, through)
+                if (
+                    result.start != start
+                    or result.end != through
+                    or result.reported_total != result.observed_total
+                ):
+                    raise ValueError("ERAS date-range aggregate failed validation")
+            counts = dict(result.calendar_series())
+        LOG.info(
+            "event=source_fetch_completed source=%s buckets=%d aggregate_total=%d "
+            "elapsed_ms=%.1f",
+            source,
+            len(counts),
+            sum(counts.values()),
+            (time.perf_counter() - started) * 1000,
+        )
+        phase = "snapshot_publication"
+        snapshot = publish_snapshot(
+            source,
+            counts,
+            through=through,
+            root=folder,
+            now=now,
+            history_complete=(days == 0),
+            history_days=days,
+        )
+        LOG.info(
+            "event=snapshot_published source=%s first=%s last=%s last_modified_utc=%s "
+            "elapsed_ms=%.1f",
+            source,
+            snapshot.first.isoformat(),
+            snapshot.last.isoformat(),
+            snapshot.last_modified.isoformat(),
+            (time.perf_counter() - started) * 1000,
+        )
+        return snapshot
+    except Exception as exc:
+        LOG.error(
+            "event=source_failed source=%s phase=%s error_type=%s trace=%s elapsed_ms=%.1f",
+            source if source in SOURCES else "invalid",
+            phase,
+            type(exc).__name__,
+            safe_error_trace(exc),
+            (time.perf_counter() - started) * 1000,
+        )
+        raise
 
 
 def refresh_all(*, root: Path | None = None, now: datetime | None = None) -> dict:
     """Synchronous, serialized on-demand refresh; no scheduler is started."""
-    folder = root if root is not None else data_dir()
-    stamp = now or datetime.now(timezone.utc)
-    if stamp.tzinfo is None:
-        raise RefreshRejected("Refresh clock must be timezone-aware")
-    stamp = stamp.astimezone(timezone.utc)
-    through = stamp.date() - timedelta(days=1)
-    with refresh_lock(folder):
-        prior = load_status(folder)
-        if prior is not None:
-            previous_time = datetime.fromisoformat(prior["started_at_utc"])
-            if stamp < previous_time + timedelta(minutes=COOLDOWN_MINUTES):
-                raise RefreshRejected("Refresh was attempted within the last hour")
-        days = effective_history_days(folder)
-        status = {
-            "format": STATUS_FORMAT,
-            "started_at_utc": stamp.isoformat(),
-            "finished_at_utc": None,
-            "state": "running",
-            "streams": {name: "pending" for name in SOURCES},
-        }
-        _write_status(folder, status)
-        for source in SOURCES:
-            try:
-                refresh_source(source, through=through, root=folder, history_days=days)
-                status["streams"][source] = "ok"
-            except Exception:
-                # Never expose URLs, SQL exception strings or API response bodies.
-                status["streams"][source] = "failed"
-        status["state"] = (
-            "ok" if all(x == "ok" for x in status["streams"].values()) else "partial_failure"
+    started = time.perf_counter()
+    run_id = uuid.uuid4().hex[:12]
+    LOG.info("event=refresh_requested run=%s", run_id)
+    try:
+        folder = root if root is not None else data_dir()
+        stamp = now or datetime.now(timezone.utc)
+        if stamp.tzinfo is None:
+            raise RefreshRejected("Refresh clock must be timezone-aware")
+        stamp = stamp.astimezone(timezone.utc)
+        through = stamp.date() - timedelta(days=1)
+        with refresh_lock(folder):
+            prior = load_status(folder)
+            if prior is not None:
+                previous_time = datetime.fromisoformat(prior["started_at_utc"])
+                if stamp < previous_time + timedelta(minutes=COOLDOWN_MINUTES):
+                    raise RefreshRejected("Refresh was attempted within the last hour")
+            days = effective_history_days(folder)
+            LOG.info(
+                "event=refresh_started run=%s cutoff=%s history_days=%d streams=%d",
+                run_id,
+                through.isoformat(),
+                days,
+                len(SOURCES),
+            )
+            status = {
+                "format": STATUS_FORMAT,
+                "started_at_utc": stamp.isoformat(),
+                "finished_at_utc": None,
+                "state": "running",
+                "streams": {name: "pending" for name in SOURCES},
+            }
+            _write_status(folder, status)
+            for source in SOURCES:
+                source_started = time.perf_counter()
+                LOG.info("event=source_started run=%s source=%s", run_id, source)
+                try:
+                    refresh_source(source, through=through, root=folder, history_days=days)
+                    status["streams"][source] = "ok"
+                    LOG.info(
+                        "event=source_succeeded run=%s source=%s elapsed_ms=%.1f",
+                        run_id,
+                        source,
+                        (time.perf_counter() - source_started) * 1000,
+                    )
+                except Exception as exc:
+                    # Never log exception messages: drivers can embed sensitive URLs.
+                    status["streams"][source] = "failed"
+                    LOG.warning(
+                        "event=source_status_failed run=%s source=%s error_type=%s "
+                        "elapsed_ms=%.1f",
+                        run_id,
+                        source,
+                        type(exc).__name__,
+                        (time.perf_counter() - source_started) * 1000,
+                    )
+            status["state"] = (
+                "ok" if all(x == "ok" for x in status["streams"].values()) else "partial_failure"
+            )
+            status["finished_at_utc"] = datetime.now(timezone.utc).isoformat()
+            _write_status(folder, status)
+            LOG.info(
+                "event=refresh_finished run=%s state=%s succeeded=%d failed=%d " "elapsed_ms=%.1f",
+                run_id,
+                status["state"],
+                sum(v == "ok" for v in status["streams"].values()),
+                sum(v == "failed" for v in status["streams"].values()),
+                (time.perf_counter() - started) * 1000,
+            )
+            return status
+    except RefreshRejected as exc:
+        # RefreshRejected is an internal fixed-text operational exception.
+        LOG.warning("event=refresh_rejected run=%s reason=%s", run_id, str(exc))
+        raise
+    except Exception as exc:
+        LOG.error(
+            "event=refresh_aborted run=%s error_type=%s trace=%s elapsed_ms=%.1f",
+            run_id,
+            type(exc).__name__,
+            safe_error_trace(exc),
+            (time.perf_counter() - started) * 1000,
         )
-        status["finished_at_utc"] = datetime.now(timezone.utc).isoformat()
-        _write_status(folder, status)
-        return status
+        raise
