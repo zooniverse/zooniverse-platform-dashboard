@@ -29,6 +29,7 @@ class Snapshot:
     last_modified: datetime
     daily: tuple[tuple[date, int], ...]
     history_complete: bool = False
+    history_days: int | None = None  # None means legacy/unknown; 0 means all-time.
 
     def counts(self) -> dict[date, int]:
         return dict(self.daily)
@@ -45,7 +46,7 @@ def _parse(doc: object, expected: str) -> Snapshot:
     if (
         not isinstance(doc, dict)
         or not required <= set(doc)
-        or set(doc) - required - {"history_complete"}
+        or set(doc) - required - {"history_complete", "history_days"}
     ):
         raise ValueError("Invalid aggregate snapshot envelope")
     if doc["format"] != FORMAT or doc["source"] != expected or expected not in SOURCES:
@@ -55,6 +56,11 @@ def _parse(doc: object, expected: str) -> Snapshot:
     complete = doc.get("history_complete", False)
     if type(complete) is not bool:
         raise ValueError("Invalid history coverage marker")
+    history_days = doc.get("history_days")
+    if history_days is not None and (
+        type(history_days) is not int or not 0 <= history_days <= MAX_DAYS
+    ):
+        raise ValueError("Invalid snapshot date limit")
     first = date.fromisoformat(doc["first"])
     last = date.fromisoformat(doc["last"])
     as_of = date.fromisoformat(doc["as_of"])
@@ -79,7 +85,9 @@ def _parse(doc: object, expected: str) -> Snapshot:
         ):
             raise ValueError("Invalid aggregate daily bucket")
         daily.append((day, row[1]))
-    return Snapshot(expected, first, last, as_of, modified, tuple(daily), complete)
+    if history_days and first != last - timedelta(days=history_days - 1):
+        raise ValueError("Snapshot date range does not match requested limit")
+    return Snapshot(expected, first, last, as_of, modified, tuple(daily), complete, history_days)
 
 
 def load_snapshot(source: str, *, root: Path | None = None) -> Snapshot:
@@ -122,6 +130,7 @@ def publish_snapshot(
     root: Path | None = None,
     now: datetime | None = None,
     history_complete: bool = True,
+    history_days: int = 0,
 ) -> Snapshot:
     """Validate and atomically save daily counts; record *each* successful refresh.
 
@@ -133,6 +142,8 @@ def publish_snapshot(
         raise ValueError("Reporting cutoff must be a completed UTC day")
     if type(history_complete) is not bool:
         raise ValueError("Invalid history coverage marker")
+    if type(history_days) is not int or not 0 <= history_days <= MAX_DAYS:
+        raise ValueError("Invalid snapshot date limit")
     if not counts or any(type(v) is not int or v < 0 for v in counts.values()):
         raise ValueError("Invalid aggregate counts")
     if any(not isinstance(d, date) or isinstance(d, datetime) for d in counts):
@@ -153,6 +164,7 @@ def publish_snapshot(
         "as_of": (through + timedelta(days=1)).isoformat(),
         "last_modified_utc": stamp.astimezone(timezone.utc).isoformat(),
         "history_complete": history_complete,
+        "history_days": history_days,
         "daily": [[d.isoformat(), counts[d]] for d in sorted(counts)],
     }
     parsed = _parse(doc, source)

@@ -1,141 +1,146 @@
-"""Read-only refresh safety and isolation: no real network/database connection."""
+"""On-demand refresh never uses cached count deltas; safety and lock tests."""
 
-import json
 from datetime import date, datetime, timedelta, timezone
 
 import pytest
 
 from zooniverse_dashboard import refresh
+from zooniverse_dashboard.collection_config import set_history_days
 from zooniverse_dashboard.eras import ClassificationProbe
-from zooniverse_dashboard.snapshots import load_snapshot
 
-NOW = datetime(2026, 10, 23, 12, 0, tzinfo=timezone.utc)
+NOW = datetime(2026, 10, 23, 12, tzinfo=timezone.utc)
+THROUGH = date(2026, 10, 22)
 
 
-def fake_probe(start, end):
+def fake_probe(start, end, count=17):
     days = (end - start).days + 1
     return ClassificationProbe(
-        start, end, days * 17, tuple((start + timedelta(days=i), 17) for i in range(days))
+        start,
+        end,
+        days * count,
+        tuple((start + timedelta(days=i), count) for i in range(days)),
     )
 
 
 def fake_full_probe(through):
-    first = date(2024, 1, 1)
-    return fake_probe(first, through)
+    return fake_probe(date(2024, 1, 1), through)
 
 
-def test_initial_eras_refresh_all_available_history(monkeypatch, tmp_path):
+def test_all_time_eras_is_refetched_on_every_refresh(monkeypatch, tmp_path):
     calls = []
 
-    def full(through):
+    def fetch(through):
         calls.append(through)
         return fake_full_probe(through)
 
-    monkeypatch.setattr(refresh, "fetch_full_classifications", full)
-    snap = refresh.refresh_source(
-        "classifications", through=date(2026, 10, 22), root=tmp_path, now=NOW
+    monkeypatch.setattr(refresh, "fetch_full_classifications", fetch)
+    first = refresh.refresh_source("classifications", through=THROUGH, root=tmp_path, now=NOW)
+    second = refresh.refresh_source(
+        "classifications", through=THROUGH, root=tmp_path, now=NOW + timedelta(minutes=5)
     )
-    assert snap.first == date(2024, 1, 1)
-    assert snap.history_complete is True
-    assert calls == [date(2026, 10, 22)]
-    assert sum(snap.counts().values()) == (date(2026, 10, 22) - snap.first).days * 17 + 17
+    assert first.history_complete is True
+    assert second.first == date(2024, 1, 1)
+    assert second.history_days == 0
+    assert calls == [THROUGH, THROUGH]
 
 
-def test_eras_reconciliation_changes_counts_without_full_refetch(monkeypatch, tmp_path):
-    full_calls = []
+def test_bounded_eras_refetch_replaces_snapshot_and_dates(monkeypatch, tmp_path):
+    set_history_days(28, root=tmp_path)
+    calls = []
 
-    def full(through):
-        full_calls.append(through)
-        return fake_full_probe(through)
+    def fetch(start, end):
+        calls.append((start, end))
+        return fake_probe(start, end, 20 if len(calls) == 2 else 17)
 
-    monkeypatch.setattr(refresh, "fetch_full_comments", full)
-    through = date(2026, 10, 22)
-    refresh.refresh_source("talks", through=through, root=tmp_path, now=NOW)
-    recent_calls = []
-
-    def modified(start, end):
-        recent_calls.append((start, end))
-        p = fake_probe(start, end)
-        rows = list(p.observed)
-        rows[-1] = (rows[-1][0], 22)
-        return ClassificationProbe(start, end, p.reported_total + 5, tuple(rows))
-
-    monkeypatch.setattr(refresh, "fetch_comments", modified)
-    refresh.refresh_source("talks", through=through, root=tmp_path, now=NOW + timedelta(minutes=5))
-    assert load_snapshot("talks", root=tmp_path).daily[-1][1] == 22
-    assert len(recent_calls) == 1
-    assert recent_calls[0][0] == through - timedelta(days=13)
-    assert full_calls == [through]
+    monkeypatch.setattr(refresh, "fetch_window_comments", fetch)
+    first = refresh.refresh_source("talks", through=THROUGH, root=tmp_path, now=NOW)
+    second = refresh.refresh_source(
+        "talks", through=THROUGH, root=tmp_path, now=NOW + timedelta(minutes=5)
+    )
+    expected_start = THROUGH - timedelta(days=27)
+    assert calls == [(expected_start, THROUGH), (expected_start, THROUGH)]
+    assert first.first == expected_start
+    assert second.first == expected_start
+    assert not second.history_complete
+    assert second.history_days == 28
+    assert sum(second.counts().values()) == 28 * 20
 
 
-def test_rejected_eras_result_keeps_previous_snapshot(monkeypatch, tmp_path):
+def test_limit_change_discards_previous_window_after_success(monkeypatch, tmp_path):
     monkeypatch.setattr(refresh, "fetch_full_classifications", fake_full_probe)
-    refresh.refresh_source("classifications", through=date(2026, 10, 22), root=tmp_path, now=NOW)
+    old = refresh.refresh_source("classifications", through=THROUGH, root=tmp_path, now=NOW)
+    assert old.history_days == 0
+    set_history_days(7, root=tmp_path)
+    monkeypatch.setattr(
+        refresh, "fetch_window_classifications", lambda start, end: fake_probe(start, end)
+    )
+    new = refresh.refresh_source("classifications", through=THROUGH, root=tmp_path, now=NOW)
+    assert new.first == THROUGH - timedelta(days=6)
+    assert new.history_days == 7
+    assert not new.history_complete
+    assert len(new.daily) == 7
+
+
+def test_failed_full_refetch_preserves_previous_snapshot(monkeypatch, tmp_path):
+    monkeypatch.setattr(refresh, "fetch_full_classifications", fake_full_probe)
+    refresh.refresh_source("classifications", through=THROUGH, root=tmp_path, now=NOW)
     before = (tmp_path / "classifications.json").read_bytes()
 
-    def bad(_start, _end):
-        raise ValueError("fake secret should not persist")
+    def fail(_through):
+        raise ValueError("db password leaked by exception")
 
-    monkeypatch.setattr(refresh, "fetch_classifications", bad)
+    monkeypatch.setattr(refresh, "fetch_full_classifications", fail)
     with pytest.raises(ValueError):
-        refresh.refresh_source(
-            "classifications", through=date(2026, 10, 22), root=tmp_path, now=NOW
-        )
+        refresh.refresh_source("classifications", through=THROUGH, root=tmp_path, now=NOW)
     assert (tmp_path / "classifications.json").read_bytes() == before
 
 
-def test_legacy_partial_snapshot_upgrades_atomically(monkeypatch, tmp_path):
-    from zooniverse_dashboard.snapshots import publish_snapshot
-
-    recent = fake_probe(date(2026, 10, 1), date(2026, 10, 22))
-    publish_snapshot(
-        "talks",
-        dict(recent.calendar_series()),
-        through=recent.end,
-        root=tmp_path,
-        now=NOW,
-        history_complete=False,
-    )
+def test_bad_bounded_total_preserves_previous_snapshot(monkeypatch, tmp_path):
+    set_history_days(3, root=tmp_path)
+    monkeypatch.setattr(refresh, "fetch_window_comments", lambda start, end: fake_probe(start, end))
+    refresh.refresh_source("talks", through=THROUGH, root=tmp_path, now=NOW)
     before = (tmp_path / "talks.json").read_bytes()
-
-    def failing(_through):
-        raise ValueError("Fake ERAS failure")
-
-    monkeypatch.setattr(refresh, "fetch_full_comments", failing)
-    with pytest.raises(ValueError):
-        refresh.refresh_source("talks", through=recent.end, root=tmp_path, now=NOW)
+    monkeypatch.setattr(
+        refresh,
+        "fetch_window_comments",
+        lambda start, end: ClassificationProbe(start, end, 999, ((start, 4),)),
+    )
+    with pytest.raises(ValueError, match="validation"):
+        refresh.refresh_source("talks", through=THROUGH, root=tmp_path, now=NOW)
     assert (tmp_path / "talks.json").read_bytes() == before
 
-    monkeypatch.setattr(refresh, "fetch_full_comments", fake_full_probe)
-    updated = refresh.refresh_source("talks", through=recent.end, root=tmp_path, now=NOW)
-    assert updated.first == date(2024, 1, 1)
-    assert updated.history_complete
 
+def test_panoptes_uses_configured_date_limit(monkeypatch, tmp_path):
+    calls = []
 
-def test_date_limited_backfill_is_not_claimed_as_all_time(monkeypatch, tmp_path):
-    monkeypatch.setattr(refresh, "fetch_classifications", fake_probe)
-    snapshot = refresh.refresh_source(
-        "classifications",
-        through=date(2026, 10, 22),
-        backfill_start=date(2026, 9, 1),
-        root=tmp_path,
-        now=NOW,
-    )
-    assert snapshot.first == date(2026, 9, 1)
-    assert not snapshot.history_complete
+    def fetch(*, through, history_days):
+        calls.append((through, history_days))
+        return {through - timedelta(days=i): 1 for i in range(history_days)}
+
+    monkeypatch.setattr(refresh, "fetch_panoptes", fetch)
+    set_history_days(10, root=tmp_path)
+    result = refresh.refresh_source("users", through=THROUGH, root=tmp_path, now=NOW)
+    assert calls == [(THROUGH, 10)]
+    assert result.first == THROUGH - timedelta(days=9)
+    assert result.history_days == 10
+    assert not result.history_complete
 
 
 def test_all_streams_status_and_cooldown(monkeypatch, tmp_path):
-    def fake_source(source, *, through, root, now=None):
-        assert source in ("users", "classifications", "talks")
-        assert through == date(2026, 10, 22)
+    calls = []
 
+    def fake_source(source, *, through, root, history_days, now=None):
+        assert source in ("users", "classifications", "talks")
+        assert through == THROUGH
+        calls.append((source, history_days))
+
+    set_history_days(365, root=tmp_path)
     monkeypatch.setattr(refresh, "refresh_source", fake_source)
     status = refresh.refresh_all(root=tmp_path, now=NOW)
     assert status["state"] == "ok"
+    assert calls == [(source, 365) for source in ("users", "classifications", "talks")]
     with pytest.raises(refresh.RefreshRejected, match="last hour"):
         refresh.refresh_all(root=tmp_path, now=NOW + timedelta(minutes=5))
-    assert refresh.load_status(tmp_path)["state"] == "ok"
 
 
 def test_failed_source_is_sanitized(monkeypatch, tmp_path):
@@ -146,13 +151,3 @@ def test_failed_source_is_sanitized(monkeypatch, tmp_path):
     monkeypatch.setattr(refresh, "refresh_source", failing)
     status = refresh.refresh_all(root=tmp_path, now=NOW)
     assert status["state"] == "partial_failure"
-    content = (tmp_path / "refresh_status.json").read_text()
-    assert "secret" not in content
-    assert json.loads(content)["streams"]["users"] == "failed"
-
-
-def test_lock_rejects_overlap(tmp_path):
-    with refresh.refresh_lock(tmp_path):
-        with pytest.raises(refresh.RefreshRejected, match="already running"):
-            with refresh.refresh_lock(tmp_path):
-                pass

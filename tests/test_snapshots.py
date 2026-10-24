@@ -33,6 +33,7 @@ def test_publication_roundtrip_and_last_modified(tmp_path):
         "last_modified_utc",
         "daily",
         "history_complete",
+        "history_days",
     }
     assert "email" not in str(doc).lower()
     again = NOW + timedelta(minutes=5)
@@ -109,3 +110,24 @@ def test_legacy_snapshot_requires_history_upgrade(tmp_path):
     path.write_text(json.dumps(doc))
     with pytest.raises(ValueError, match="history coverage"):
         load_snapshot("classifications", root=tmp_path)
+
+
+def test_history_limit_is_retained_and_validated(tmp_path):
+    values = sample(days=28)
+    snap = publish_snapshot(
+        "talks",
+        values,
+        through=max(values),
+        root=tmp_path,
+        now=NOW,
+        history_complete=False,
+        history_days=28,
+    )
+    assert snap.history_days == 28
+    assert not snap.history_complete
+    path = tmp_path / "talks.json"
+    doc = json.loads(path.read_text())
+    doc["history_days"] = 7
+    path.write_text(json.dumps(doc))
+    with pytest.raises(ValueError, match="range"):
+        load_snapshot("talks", root=tmp_path)

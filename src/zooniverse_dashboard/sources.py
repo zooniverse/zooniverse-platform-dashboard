@@ -6,22 +6,33 @@ from sqlalchemy import create_engine, text
 from sqlalchemy.pool import NullPool
 
 from zooniverse_dashboard.config import panoptes_url
+from zooniverse_dashboard.snapshots import MAX_DAYS
 
 # No dynamic table names or identifiers from outside this module.
+# Two audited, fixed SQL shapes; never interpolate SQL from configuration.
 REGISTRATIONS_SQL = text(
     "SELECT created_at::date AS day, COUNT(*)::bigint AS registrations "
     'FROM public."users" WHERE created_at IS NOT NULL '
     "AND created_at < :end_exclusive "
     "GROUP BY created_at::date ORDER BY day"
 )
+REGISTRATIONS_BOUNDED_SQL = text(
+    "SELECT created_at::date AS day, COUNT(*)::bigint AS registrations "
+    'FROM public."users" WHERE created_at IS NOT NULL '
+    "AND created_at >= :start_inclusive AND created_at < :end_exclusive "
+    "GROUP BY created_at::date ORDER BY day"
+)
 
 
-def fetch_panoptes(*, through: date) -> dict[date, int]:
+def fetch_panoptes(*, through: date, history_days: int = 0) -> dict[date, int]:
     """One read-only PostgreSQL scan returning (day, count) only.
 
     `created_at` is timestamp WITHOUT timezone; the UTC interpretation still
     needs to be confirmed with the Panoptes maintainers.
     """
+    if type(history_days) is not int or not 0 <= history_days <= MAX_DAYS:
+        raise ValueError("Invalid history limit")
+    start = through - timedelta(days=history_days - 1) if history_days else None
     url = panoptes_url()
     engine = create_engine(url, poolclass=NullPool, connect_args={"connect_timeout": 5})
     try:
@@ -33,8 +44,14 @@ def fetch_panoptes(*, through: date) -> dict[date, int]:
             conn.exec_driver_sql("SET LOCAL statement_timeout = 20000")
             conn.exec_driver_sql("SET LOCAL lock_timeout = 250")
             conn.exec_driver_sql("SET LOCAL idle_in_transaction_session_timeout = 35000")
-            rows = conn.execute(REGISTRATIONS_SQL, {"end_exclusive": bound}).all()
-        if not rows:
+            if start is None:
+                rows = conn.execute(REGISTRATIONS_SQL, {"end_exclusive": bound}).all()
+            else:
+                rows = conn.execute(
+                    REGISTRATIONS_BOUNDED_SQL,
+                    {"start_inclusive": datetime.combine(start, time.min), "end_exclusive": bound},
+                ).all()
+        if not rows and start is None:
             raise ValueError("No registration aggregates returned")
         values: dict[date, int] = {}
         for day, count in rows:
@@ -48,7 +65,7 @@ def fetch_panoptes(*, through: date) -> dict[date, int]:
             ):
                 raise ValueError("Unexpected registration aggregate")
             values[day] = count
-        first = min(values)
+        first = start if start is not None else min(values)
         return {
             first + timedelta(days=i): values.get(first + timedelta(days=i), 0)
             for i in range((through - first).days + 1)

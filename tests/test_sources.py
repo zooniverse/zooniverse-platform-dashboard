@@ -5,7 +5,7 @@ from datetime import date
 import pytest
 
 from zooniverse_dashboard.eras import parse_classifications
-from zooniverse_dashboard.sources import REGISTRATIONS_SQL
+from zooniverse_dashboard.sources import REGISTRATIONS_BOUNDED_SQL, REGISTRATIONS_SQL
 
 
 def test_approved_panoptes_query_is_aggregate_only():
@@ -26,3 +26,11 @@ def test_public_eras_daily_counts_are_validated():
         parse_classifications(
             {"total_count": -1, "data": []}, start=date(2026, 10, 19), end=date(2026, 10, 20)
         )
+
+
+def test_bounded_panoptes_uses_only_dates_and_aggregates():
+    sql = str(REGISTRATIONS_BOUNDED_SQL).lower()
+    assert "created_at >= :start_inclusive" in sql
+    assert "created_at < :end_exclusive" in sql
+    assert "count(*)" in sql and "group by created_at::date" in sql
+    assert all(x not in sql for x in ("email", "password", "api_key", "last_sign_in_ip"))

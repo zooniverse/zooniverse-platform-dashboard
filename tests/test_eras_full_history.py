@@ -9,6 +9,8 @@ from zooniverse_dashboard.eras import (
     ErasResponseError,
     fetch_full_classifications,
     fetch_full_comments,
+    fetch_window_classifications,
+    fetch_window_comments,
     parse_full_history,
 )
 
@@ -91,3 +93,45 @@ def test_full_history_rejects_empty_history_and_oversized_response():
     huge = FakeSession({"total_count": 0, "data": [], "junk": "x" * 1_500_001})
     with pytest.raises(ErasResponseError, match="size limit"):
         fetch_full_classifications(date(2026, 10, 22), session=huge)
+
+
+@pytest.mark.parametrize(
+    "fetcher,endpoint",
+    [(fetch_window_classifications, "/classifications"), (fetch_window_comments, "/comments")],
+)
+def test_bounded_history_eras_single_request(fetcher, endpoint):
+    body = {
+        "total_count": 6,
+        "data": [
+            {"period": "2026-10-20T00:00:00Z", "count": 2},
+            {"period": "2026-10-22T00:00:00Z", "count": 4},
+        ],
+        "user_info": "do not retain",
+    }
+    session = FakeSession(body)
+    result = fetcher(date(2026, 10, 20), date(2026, 10, 22), session=session)
+    assert session.calls[0][0].endswith(endpoint)
+    assert session.calls[0][1] == {
+        "period": "day",
+        "start_date": "2026-10-20",
+        "end_date": "2026-10-22",
+    }
+    assert result.calendar_series() == (
+        (date(2026, 10, 20), 2),
+        (date(2026, 10, 21), 0),
+        (date(2026, 10, 22), 4),
+    )
+    assert "user_info" not in str(result)
+
+
+def test_bounded_history_rejects_wrong_total_and_out_of_range():
+    session = FakeSession(
+        {
+            "total_count": 90,
+            "data": [{"period": "2026-10-22T00:00:00Z", "count": 2}],
+        }
+    )
+    with pytest.raises(ErasResponseError, match="does not match"):
+        fetch_window_comments(date(2026, 10, 20), date(2026, 10, 22), session=session)
+    with pytest.raises(ValueError):
+        fetch_window_comments(date(2026, 10, 22), date(2026, 10, 20), session=session)

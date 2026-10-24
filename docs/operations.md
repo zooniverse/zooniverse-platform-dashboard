@@ -1,51 +1,97 @@
-# Operations and deployment
+# Refreshing analytics and selecting a date range
 
-Use one Dockerized Dash/Gunicorn service, a persistent named volume at `/data`, and
-an authenticated TLS ingress. Production `DB_URL_PANOPTES` is injected as a Docker
-secret/environment value when CI/deployment is configured later. It must never be
-committed or written to aggregate snapshots.
+This internal dashboard uses **manual, complete-window refreshes**. There is
+no cron job and no incremental/backfill logic. Each refresh queries Panoptes
+and both ERAS endpoints for the *entire configured history window* and
+atomically replaces each validated daily-count JSON file. Dash pages read only
+the published JSON files, never production sources.
 
-Click **Refresh data** to collect completed UTC days through yesterday. The coordinator
-has a non-blocking cross-worker flock and a durable 60-minute cooldown. Both are stored
-on the same volume as the JSON, so multiple users cannot start overlapping refreshes.
-One failed stream retains its previous file; the dashboard displays freshness per stream.
+## Configured history window
 
-The first successful ERAS refresh now retrieves the **entire available
-history** for both Classifications and Talk using an all-time daily ERAS
-request (no start date). The complete response is validated before it replaces
-any existing snapshot. Older 28-day snapshots are identified as partial and
-will be upgraded automatically. Future refreshes only reconcile the latest
-14 days, avoiding expensive repeat historical requests.
+Set `ANALYTICS_HISTORY_DAYS` in the environment (or `.env`) to select the
+**number of completed UTC calendar days** to retrieve. If it is unset or
+`0`, all available history is requested, with no lower date bound.
 
-To initialize from the CLI instead of the web button, use:
+| Setting | UTC history requested when refreshed on October 23, 2026 |
+|---|---|
+| `0` (default) | All available days through October 22 |
+| `7` | October 16–22 (inclusive) |
+| `28` | September 25–October 22 (inclusive) |
+| `365` | October 23, 2025–October 22, 2026 (inclusive) |
+
+Only nonnegative integers up to the snapshot storage bound are accepted;
+invalid values cause an explicit error and **never** silently trigger an
+all-history fetch. The setting applies identically to Users, Classifications,
+and Talk; the actual first available date may differ between sources in
+all-time mode.
+
+### Set the limit without rebuilding the container
+
+In the installed environment:
 
 ```bash
-zooniverse-dashboard backfill --source classifications
-zooniverse-dashboard backfill --source talks
+set-date-limit             # display effective setting
+set-date-limit 365         # store a 365-day limit
+set-date-limit 0           # remove the date restriction: all available history
+refresh-data               # refresh all three sources (no arguments)
 ```
 
-`--start YYYY-MM-DD` remains available for an **explicitly partial**, bounded
-historical import if the all-time request cannot complete. These snapshots
-are marked partial rather than represented as all-time statistics. A later
-normal refresh will attempt a complete-history upgrade. A failed collection
-leaves the last valid snapshot unchanged. All-time responses have strict
-response-size and date-count limits, and are never silently truncated.
+In Docker:
 
-Run it against the deployed container volume, not an ephemeral one. Explicit backfills
-also use the shared lock, and may take much longer than web requests. Do not scale to
-multiple isolated replicas. The health route `/healthz` shows process availability,
-**not** database or analytics freshness. No scheduler, cron, extra database, bucket,
-or GitHub workflow is included.
+```bash
+docker compose -f deploy/compose.yml exec dashboard set-date-limit 365
+docker compose -f deploy/compose.yml exec dashboard refresh-data
+```
 
-### Date semantics
+**Important:** A running process cannot change its own Docker environment
+variables persistently. `set-date-limit` writes a validated
+`collection_config.json` override to the same persistent `/data` volume as
+the snapshots. The precedence is **volume override >
+`ANALYTICS_HISTORY_DAYS` > default `0`**. Changing an environment value alone
+does not override an existing file; `set-date-limit 0` means *all-time*, not
+"fall back to the environment". A subsequent `refresh-data` or web refresh
+is required to regenerate snapshots under the new limit. The dashboard warns
+when its snapshot was built using a different limit or an older schema.
 
-Panoptes `created_at` is a timestamp without time zone. We assume UTC calendar
-interpretation but it requires confirmation from the source maintainers before using
-these figures in formal external reporting. ERAS provides UTC daily buckets.
+The command takes the same POSIX lock as the web refresh, so no configuration
+change can occur in the middle of a refresh. The refresh retains its one-hour
+cooldown across web and CLI calls; after changing the limit, wait for the
+cooldown if necessary.
 
-### Production access control
+## Collection and safety
 
-All visitors can refresh; authentication and HTTPS belong at the trusted ingress
-(SSO/VPN/reverse proxy). Never expose this HTTP app without ingress-level access
-control. Consider a separate refresh worker only if normal ERAS requests exceed
-Gunicorn's bounded request timeout.
+- `users`: an approved read-only PostgreSQL aggregate query on
+  `public.users.created_at`, optionally bounded below by the selected date.
+  Only daily counts leave PostgreSQL; individual user records are never read
+  by Python. The timestamp's UTC interpretation remains to be confirmed with
+  the Panoptes maintainers.
+- `classifications` and `talks`: a single public ERAS daily aggregate request
+  per source. For `0`, the request omits `start_date`; for a bounded window it
+  includes both `start_date` and `end_date`. Totals, bucket dates, response
+  size and date spans are validated. No user-level data is requested.
+- Snapshots are published atomically and independently on the mounted volume.
+  A failed source leaves its previous JSON intact; the generic status file
+  shows partial failure without exposing credentials or raw server errors.
+- Each JSON records `last_modified_utc`, `history_days`, coverage, daily
+  counts and `history_complete` (`true` only for all-time requests). Missing
+  calendar buckets within the requested interval are filled with zero.
+- One dashboard instance must use one persistent, POSIX locking-capable
+  volume; multiple isolated replicas are not supported.
+
+The cross-worker lock rejects simultaneous refreshes, and the coordinator
+refuses a second refresh attempt within 60 minutes. The refresh button runs
+synchronously in a Gunicorn worker. Large ERAS responses may hit API limits or
+the web request timeout; the CLI is useful for explicitly running such a
+collection, but it is still subject to request validation and the cooldown.
+
+## Access and deployment
+
+Use one Dockerized Dash/Gunicorn service, a persistent named volume at `/data`,
+and an authenticated TLS ingress. Configure `DB_URL_PANOPTES` as a server-side
+secret or environment variable; never place it in source control. The refresh
+button is available to visitors, so restrict **the entire dashboard** at the
+ingress (SSO/VPN/reverse proxy).
+
+`/healthz` indicates process availability, not snapshot freshness. No
+scheduled collection service, separate bucket, or CI deployment workflow is
+installed.

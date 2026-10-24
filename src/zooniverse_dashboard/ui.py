@@ -8,6 +8,7 @@ from datetime import datetime, timedelta, timezone
 import plotly.graph_objects as go
 from dash import Input, Output, callback, dcc, html
 
+from zooniverse_dashboard.collection_config import effective_history_days
 from zooniverse_dashboard.detection import find_weekday_outliers
 from zooniverse_dashboard.periods import calendar_periods, visible_date_range
 from zooniverse_dashboard.snapshots import Snapshot, load_snapshot
@@ -35,12 +36,15 @@ def layout_for(source: str):
                 html.H1(title),
                 html.Div(
                     "No valid aggregate snapshot yet. Click Refresh data to initialize the "
-                    "available history. The initial ERAS refresh requests the full "
-                    "available daily history; an unusually large or invalid response is rejected.",
+                    "configured history. An oversized or invalid source response is rejected.",
                     className="notice",
                 ),
             ]
         )
+    try:
+        configured_days = effective_history_days()
+    except ValueError:
+        configured_days = None
     now = datetime.now(timezone.utc)
     stale_days = max(0, (now.date() - snapshot.as_of).days)
     cards = []
@@ -84,16 +88,26 @@ def layout_for(source: str):
                     snapshot.first.isoformat(),
                     " – ",
                     snapshot.last.isoformat(),
+                    " · Collected range: ",
+                    (
+                        "All available"
+                        if snapshot.history_days == 0
+                        else (
+                            f"Last {snapshot.history_days} days"
+                            if snapshot.history_days is not None
+                            else "Legacy / unknown"
+                        )
+                    ),
                 ],
                 className="notice",
             ),
             (
                 html.Div(
-                    "Historical coverage is partial; use Refresh data to retrieve the "
-                    "complete ERAS history.",
+                    "Date-limit setting has changed (or snapshot predates this feature). "
+                    "Refresh data to apply the selected historical window.",
                     className="notice notice-warning",
                 )
-                if source != "users" and not snapshot.history_complete
+                if configured_days is None or snapshot.history_days != configured_days
                 else None
             ),
             (

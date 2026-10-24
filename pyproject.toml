@@ -21,7 +21,8 @@ server = ["gunicorn>=23,<26"]
 dev = ["pytest>=8,<10", "black>=25,<27", "ruff>=0.10,<1"]
 docs = ["sphinx>=8,<10", "myst-parser>=4,<5", "furo>=2025.7", "sphinx-autoapi>=3.6,<4"]
 [project.scripts]
-zooniverse-dashboard = "zooniverse_dashboard.cli:main"
+refresh-data = "zooniverse_dashboard.cli:refresh_data"
+set-date-limit = "zooniverse_dashboard.cli:set_date_limit"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/zooniverse_dashboard"]

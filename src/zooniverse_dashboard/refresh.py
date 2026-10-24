@@ -1,4 +1,4 @@
-"""Single-volume refresh coordination, ERAS reconciliation and safe status metadata."""
+"""Single-volume manual refresh coordination and safe status metadata."""
 
 from __future__ import annotations
 
@@ -11,20 +11,19 @@ from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Iterator
 
+from zooniverse_dashboard.collection_config import effective_history_days
 from zooniverse_dashboard.config import data_dir
 from zooniverse_dashboard.eras import (
-    fetch_classifications,
-    fetch_comments,
     fetch_full_classifications,
     fetch_full_comments,
+    fetch_window_classifications,
+    fetch_window_comments,
 )
-from zooniverse_dashboard.snapshots import SOURCES, _atomic_publish, load_snapshot, publish_snapshot
+from zooniverse_dashboard.snapshots import MAX_DAYS, SOURCES, _atomic_publish, publish_snapshot
 from zooniverse_dashboard.sources import fetch_panoptes
 
 STATUS_FORMAT = "ZOONIVERSE_REFRESH_STATUS_V1"
 COOLDOWN_MINUTES = 60
-MAX_ERAS_REQUESTS = 48
-ERAS_CHUNK_DAYS = 35
 
 
 class RefreshRejected(ValueError):
@@ -83,82 +82,58 @@ def _write_status(root: Path, status: dict) -> None:
     _atomic_publish(path, status)
 
 
-def _fetch_eras_range(source: str, start: date, through: date) -> dict[date, int]:
-    """Bounded public ERAS day counts, with zero-filled missing dates."""
-    if source not in {"classifications", "talks"} or start > through:
-        raise ValueError("Invalid ERAS request")
-    fetcher = fetch_classifications if source == "classifications" else fetch_comments
-    result: dict[date, int] = {}
-    current = start
-    requests = 0
-    while current <= through:
-        upper = min(current + timedelta(days=ERAS_CHUNK_DAYS - 1), through)
-        requests += 1
-        if requests > MAX_ERAS_REQUESTS:
-            raise ValueError("ERAS backfill too large for a single request")
-        response = fetcher(current, upper)
-        if (
-            response.start != current
-            or response.end != upper
-            or response.reported_total != response.observed_total
-        ):
-            raise ValueError("ERAS aggregate response failed validation")
-        for day, count in response.calendar_series():
-            result[day] = count
-        current = upper + timedelta(days=1)
-    return result
-
-
 def refresh_source(
     source: str,
     *,
     through: date,
     root: Path | None = None,
-    backfill_start: date | None = None,
     now: datetime | None = None,
-    force_full_history: bool = False,
+    history_days: int | None = None,
 ):
-    """Produce a complete daily-count JSON snapshot from one approved source.
+    """Replace one entire configured history window with validated aggregates.
 
-    The first ERAS refresh retrieves all available history in one bounded API
-    response. Older partial snapshots are upgraded automatically. A complete
-    snapshot is thereafter reconciled over the latest 14 days only.
+    No incremental/backfill workflow is used: even existing snapshots are
+    refreshed over the full selected range on each successful call.
     """
     folder = root if root is not None else data_dir()
     if source not in SOURCES:
         raise ValueError("Invalid analytics stream")
-    if backfill_start is not None and force_full_history:
-        raise ValueError("Cannot combine a date-limited backfill with full history")
-    complete = True
+    days = effective_history_days(folder) if history_days is None else history_days
+    if type(days) is not int or not 0 <= days <= MAX_DAYS:
+        raise ValueError("Invalid history limit")
     if source == "users":
-        counts = fetch_panoptes(through=through)
+        counts = fetch_panoptes(through=through, history_days=days)
     else:
-        try:
-            previous = load_snapshot(source, root=folder)
-        except ValueError:
-            previous = None
-        if backfill_start is not None:
-            if backfill_start > through:
-                raise ValueError("Invalid backfill date")
-            # Explicit date-limited CLI backfill; never claim this is all-time.
-            counts = _fetch_eras_range(source, backfill_start, through)
-            complete = False
-        elif force_full_history or previous is None or not previous.history_complete:
+        if days == 0:
             fetcher = (
                 fetch_full_classifications if source == "classifications" else fetch_full_comments
             )
             result = fetcher(through)
             if result.end != through or result.reported_total != result.observed_total:
                 raise ValueError("ERAS full-history aggregate failed validation")
-            counts = dict(result.calendar_series())
         else:
-            if through < previous.last:
-                raise ValueError("Cannot move reporting cutoff backward")
-            counts = previous.counts()
-            start = max(previous.first, previous.last - timedelta(days=13))
-            counts.update(_fetch_eras_range(source, start, through))
+            start = through - timedelta(days=days - 1)
+            fetcher = (
+                fetch_window_classifications
+                if source == "classifications"
+                else fetch_window_comments
+            )
+            result = fetcher(start, through)
+            if (
+                result.start != start
+                or result.end != through
+                or result.reported_total != result.observed_total
+            ):
+                raise ValueError("ERAS date-range aggregate failed validation")
+        counts = dict(result.calendar_series())
     return publish_snapshot(
-        source, counts, through=through, root=folder, now=now, history_complete=complete
+        source,
+        counts,
+        through=through,
+        root=folder,
+        now=now,
+        history_complete=(days == 0),
+        history_days=days,
     )
 
 
@@ -176,6 +151,7 @@ def refresh_all(*, root: Path | None = None, now: datetime | None = None) -> dic
             previous_time = datetime.fromisoformat(prior["started_at_utc"])
             if stamp < previous_time + timedelta(minutes=COOLDOWN_MINUTES):
                 raise RefreshRejected("Refresh was attempted within the last hour")
+        days = effective_history_days(folder)
         status = {
             "format": STATUS_FORMAT,
             "started_at_utc": stamp.isoformat(),
@@ -186,7 +162,7 @@ def refresh_all(*, root: Path | None = None, now: datetime | None = None) -> dic
         _write_status(folder, status)
         for source in SOURCES:
             try:
-                refresh_source(source, through=through, root=folder)
+                refresh_source(source, through=through, root=folder, history_days=days)
                 status["streams"][source] = "ok"
             except Exception:
                 # Never expose URLs, SQL exception strings or API response bodies.

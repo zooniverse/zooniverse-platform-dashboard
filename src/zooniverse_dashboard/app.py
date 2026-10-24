@@ -5,6 +5,7 @@ from pathlib import Path
 from dash import Dash, Input, Output, dcc, html, page_container, page_registry
 from flask import redirect, request
 
+from zooniverse_dashboard.collection_config import effective_history_days
 from zooniverse_dashboard.refresh import RefreshRejected, load_status, refresh_all
 from zooniverse_dashboard.snapshots import SOURCES, load_snapshot
 
@@ -94,7 +95,19 @@ def create_app() -> Dash:
             state = "No previous refresh" if info is None else f"Last attempt: {info['state']}"
         except (OSError, ValueError):
             state = "Refresh status unavailable"
-        return "Snapshot last modified · " + " · ".join(parts) + " | " + state
+        try:
+            days = effective_history_days()
+            window = "All available history" if days == 0 else f"Last {days} UTC days"
+        except ValueError:
+            window = "Invalid history configuration"
+        return (
+            "Selected history: "
+            + window
+            + " | Snapshot last modified · "
+            + " · ".join(parts)
+            + " | "
+            + state
+        )
 
     @app.server.before_request
     def homepage_redirect():

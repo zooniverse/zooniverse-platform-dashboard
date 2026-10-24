@@ -26,26 +26,33 @@ python app.py
 Open <http://127.0.0.1:8050/>. The first visit displays an empty-state message until a
 refresh succeeds; the application never loads database records while rendering pages.
 
-The **Refresh data** button makes one approved Panoptes full-history aggregation and
-retrieves full ERAS history on the first refresh (and recent days thereafter).
-A global, one-hour cooldown and POSIX file lock
-prevent concurrent or repeated refreshes. Each successful snapshot includes
-`last_modified_utc`; the dashboard shows its actual timestamp and warns when the
-coverage is behind the last completed UTC day. A partial failure preserves good files.
+The **Refresh data** button re-queries the **entire selected history** for
+all three sources on each use; no incremental backfill or 14-day reconciliation
+is retained. By default this means all available Panoptes registrations and
+all available public ERAS classification/Talk counts. Each published JSON
+records `last_modified_utc`, its `history_days` limit and actual date coverage.
+A shared one-hour cooldown and POSIX lock protect the source services and
+prevent simultaneous refreshes. Failed collections preserve the previous file.
 
-On the **first ERAS refresh**, the collector requests **all available daily
-classification and Talk comment history**, rather than only 28 days. It uses
-one public all-time request per source (no `start_date`), validates that the
-reported total equals the sum of its daily buckets, and fills omitted dates
-within the observed history with zero. Subsequent refreshes reconcile the
-latest 14 days only. Existing 28-day snapshots are recognized as partial and
-upgraded on the next successful refresh; the last valid files are preserved
-if the initial full-history request fails.
+Configure the initial history window in `.env` using
+`ANALYTICS_HISTORY_DAYS=0` (all available, also the default when unset) or a
+positive number of completed UTC days. For example, `365` means the latest
+365 completed dates through yesterday, not a rolling timestamp interval.
 
-If an ERAS full-history response is too large or slow, the collector will
-**fail safely**, rather than silently publishing an incomplete history. In that
-case, consult the [operations guide](docs/operations.md) before attempting a
-bounded manual backfill.
+You can adjust the effective window later without restarting Docker:
+
+```bash
+set-date-limit              # show effective limit
+set-date-limit 365          # persist 365 completed UTC days
+set-date-limit 0            # return to all available history
+refresh-data                # refresh all three sources (no flags)
+```
+
+The command writes an override to the persistent data volume; it cannot
+rewrite Docker environment variables. The effective precedence is saved
+volume override, then environment, then all-time default. Changing the limit
+does not refresh data automatically, and the dashboard warns until new
+snapshots match. See [operations](docs/operations.md).
 
 ## Docker: one service and one persistent volume
 
@@ -53,13 +60,12 @@ bounded manual backfill.
 cp .env.example .env  # edit safely; do not commit
 # In Docker, only the DB_URL_PANOPTES setting needs to be provided via environment.
 docker compose -f deploy/compose.yml up --build -d
-# For an explicit initial ERAS historical backfill:
-docker compose -f deploy/compose.yml exec dashboard \
-  zooniverse-dashboard backfill --source classifications
+# Optional: refresh directly (same behavior as the dashboard button):
+docker compose -f deploy/compose.yml exec dashboard refresh-data
 ```
 
-The container keeps `users.json`, `classifications.json`, `talks.json`, and
-`refresh_status.json` in `/data`, backed by the named Docker volume `analytics_data`.
+The container keeps `users.json`, `classifications.json`, `talks.json`,
+`refresh_status.json`, and optional `collection_config.json` in `/data`, backed by the named Docker volume `analytics_data`.
 It must have **a single deployment replica on one shared POSIX filesystem**.
 There is no cron job, separate database, or object-storage bucket.
 
@@ -117,7 +123,7 @@ creates a navigable reference from the source without importing runtime code.
   must be confirmed with the database maintainers.
 - Full-history Panoptes aggregation was observed at 1,330.3 ms on October 23,
   2026 (one approved production measurement). This is not a guaranteed SLA.
-- ERAS public aggregate counts may be delayed; the recent 14 days are reconciled.
+- ERAS public aggregate counts may be delayed; each refresh retrieves the selected history again.
 - The refresh runs synchronously within a Gunicorn worker (120-second timeout).
   Very long ERAS operations should use the CLI rather than the web button.
 - All anomaly flags are uncalibrated statistical observations, never accusations

@@ -241,3 +241,48 @@ def fetch_full_classifications(
 def fetch_full_comments(through: date, *, session: requests.Session | None = None) -> CommentProbe:
     """Request all available platform-wide Talk comment day buckets."""
     return _fetch_full_history(through, endpoint=ERAS_COMMENTS_URL, session=session)
+
+
+def _fetch_history_window(
+    start: date,
+    through: date,
+    *,
+    endpoint: str,
+    session: requests.Session | None = None,
+) -> ClassificationProbe:
+    """Retrieve the entire configured date range in one validated ERAS request."""
+    if (
+        not isinstance(start, date)
+        or isinstance(start, datetime)
+        or not isinstance(through, date)
+        or isinstance(through, datetime)
+        or start > through
+        or (through - start).days + 1 > MAX_FULL_HISTORY_DAYS
+    ):
+        raise ValueError("Invalid ERAS history range")
+    payload = _request_daily_counts(
+        endpoint,
+        {"period": "day", "start_date": start.isoformat(), "end_date": through.isoformat()},
+        session=session,
+        limit=MAX_FULL_RESPONSE_BYTES,
+    )
+    result = parse_classifications(
+        payload, start=start, end=through, max_buckets=MAX_FULL_HISTORY_DAYS
+    )
+    if result.reported_total != result.observed_total:
+        raise ErasResponseError("ERAS date-range total does not match daily buckets")
+    return result
+
+
+def fetch_window_classifications(
+    start: date, through: date, *, session: requests.Session | None = None
+) -> ClassificationProbe:
+    """Fetch the complete requested classification window, not a recent delta."""
+    return _fetch_history_window(start, through, endpoint=ERAS_CLASSIFICATIONS_URL, session=session)
+
+
+def fetch_window_comments(
+    start: date, through: date, *, session: requests.Session | None = None
+) -> CommentProbe:
+    """Fetch the complete requested Talk comment window, not a recent delta."""
+    return _fetch_history_window(start, through, endpoint=ERAS_COMMENTS_URL, session=session)
