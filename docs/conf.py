@@ -8,6 +8,8 @@ release = "0.1.0"
 root_doc = "index"
 source_suffix = {".rst": "restructuredtext", ".md": "markdown"}
 extensions = ["myst_parser", "autoapi.extension", "sphinx.ext.napoleon"]
+# Render the detector's inline and display equations in MyST Markdown.
+myst_enable_extensions = ["dollarmath"]
 exclude_patterns = ["_build"]
 
 html_theme = "furo"

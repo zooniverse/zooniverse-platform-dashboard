@@ -162,3 +162,7 @@ The progress panel never prints raw exception strings. The saved refresh status
 shows source failures, and the dashboard status line indicates how many anomaly
 analyses match their current snapshots. A failed anomaly rebuild leaves any previous catalog
 untouched, and stale episode markers are withheld until rebuilt.
+
+The anomaly method, thresholds, catalog revision rules, limitations, and
+meaning of cross-source notes are documented in
+[Anomaly detection and episode inspection](anomaly_detection.md).

@@ -37,29 +37,28 @@ record `history_days`, and the UI warns if configuration has changed since
 publication. There is no incremental reconciliation or historical backfill
 workflow.
 
-## Offline anomaly inspection
+## Anomaly analysis and inspection
 
-The dashboard no longer uses the weekday-MAD detector. A separate, offline
-`zooniverse_dashboard.anomalies` package reads existing validated aggregate JSON
-snapshots and creates an atomic `anomalies.json` catalog on the same volume.
-Run `rebuild-anomalies` or `python -m zooniverse_dashboard.anomalies` after each
-manual aggregate refresh. The `/anomalies` page and existing history charts
-**only read the catalog**; neither navigation nor plotting fits NB2 or makes
-remote requests. A changed source snapshot makes its cached anomaly results
-stale and hides them until rebuilding, avoiding misleading old markers.
+The separate `zooniverse_dashboard.anomalies` package performs rolling NB2
+analysis on validated daily JSON snapshots, **not** on API responses or
+individual records. Users use a calendar-aware model; Classifications and
+Talk use baseline NB2. Daily model surprise and rolling historical rarity
+are preserved separately and grouped into episodes. The old weekday-MAD
+chart detector is no longer used.
 
-The initial inspection catalog evaluates at most the last 730 completed UTC days
-per source, after up to 730 training days and 365 earlier out-of-sample days for
-empirical calibration. A shorter snapshot may be insufficient. Model fitting
-uses 28-day anchored, past-only refits, profile-likelihood NB2, weekday/trend
-predictors, and Christmas/New Year indicators for Users only. NB2 tail and
-historical-rank scores are shown separately. Events can be marked by one or
-both; adjoining candidate days become episodes. These scores have no guaranteed
-false-positive rate and do not establish an incident, campaign, or outage.
-Shared drops are context only; simultaneous spikes are never corroboration.
-Source zero-filled daily counts cannot establish provider bucket completeness.
+The `refresh-data` CLI and Dash **Refresh data** button share a single
+refresh-then-rebuild pipeline. For the browser, Dash runs the longer operation
+as a Diskcache background callback and displays progress before reloading the
+current page. `rebuild-anomalies` also supports analysis without refreshing
+remote data. The analysis writes an atomic `anomalies.json` on the same
+volume; Dash only reads the catalog, hides results whose source revision
+no longer matches, and never fits the numerical model during navigation.
 
-Marker clicks navigate to `/anomalies?event=<id>` and highlight the episode at
-the top of the list. Each episode's `Show on graph` link returns to the matching
-source page with a URL query parameter that zooms around the episode. No
-server-side sessions or user-specific state are retained.
+Chart diamonds link to a selected episode on `/anomalies`; **Show on graph**
+returns to the originating source chart zoomed around that episode. Shared
+drops provide unverified context, not an outage determination. Concurrent
+spikes do not count as cross-source corroboration.
+
+See [Anomaly detection and episode inspection](anomaly_detection.md) for the
+model, equations, past-only fitting protocol, thresholds, assumptions,
+interpretation, failure handling and implementation references.
