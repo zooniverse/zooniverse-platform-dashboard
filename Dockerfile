@@ -3,7 +3,7 @@ WORKDIR /app
 COPY pyproject.toml README.md ./
 COPY src/ ./src/
 COPY app.py ./
-RUN pip install --no-cache-dir '.[server]' \
+RUN pip install --no-cache-dir '.[server,analysis]' \
     && useradd --uid 10001 --create-home dashboard \
     && mkdir -p /data \
     && chown 10001:10001 /data

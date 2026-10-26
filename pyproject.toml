@@ -18,9 +18,11 @@ dependencies = [
 ]
 [project.optional-dependencies]
 server = ["gunicorn>=23,<26"]
+analysis = ["numpy>=1.26,<3", "scipy>=1.12,<2", "statsmodels>=0.14,<1"]
 dev = ["pytest>=8,<10", "black>=25,<27", "ruff>=0.10,<1"]
 docs = ["sphinx>=8,<10", "myst-parser>=4,<5", "furo>=2025.7", "sphinx-autoapi>=3.6,<4"]
 [project.scripts]
+rebuild-anomalies = "zooniverse_dashboard.anomalies.__main__:main"
 refresh-data = "zooniverse_dashboard.cli:refresh_data"
 set-date-limit = "zooniverse_dashboard.cli:set_date_limit"
 
@@ -28,7 +30,7 @@ set-date-limit = "zooniverse_dashboard.cli:set_date_limit"
 packages = ["src/zooniverse_dashboard"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-pythonpath = ["src"]
+pythonpath = [".","src"]
 [tool.ruff]
 line-length = 100
 target-version = "py311"

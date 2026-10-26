@@ -74,3 +74,24 @@ h2 { font-size: 1.15rem; margin: .5rem 0 1.5rem; }
 .refresh-system-status { color: #536173; font-size: .78rem; padding: .45rem 1.5rem; }
 .manual-refresh-bar button { border: 0; border-radius: .35rem; background: #176b82; color: white; font-weight: 600; }
 .notice-warning { border-color: #e3c88e; background: #fff7df; }
+
+/* Statistical episode inspector. No episode spans are painted on history charts. */
+.episode-card { background: var(--card); border: 1px solid var(--line); border-radius: .8rem;
+    padding: 1.25rem; margin: 1rem 0; }
+.episode-card.episode-selected { border: 2px solid var(--accent); background: #f0f8fa; }
+.episode-header { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between;
+    gap: .75rem; }
+.episode-header h3 { font-size: 1rem; margin: 0; }
+.episode-meta { font-size: .8rem; color: var(--ink-muted); }
+.episode-count { font-size: .94rem; font-weight: 650; }
+.episode-algorithms { font-size: .86rem; color: var(--accent); }
+.episode-context { color: #8b6419; font-size: .85rem; }
+.episode-graph-link { display: inline-block; border-radius: .4rem; background: var(--accent);
+    color: white; padding: .55rem .8rem; text-decoration: none; font-size: .86rem; }
+.episode-graph-link:hover { color: white; background: #14566a; }
+
+/* Cursor is controlled on Plotly's actual drag targets, not Dash React props.
+   JS activates this class only while the pointer is on an episode diamond. */
+.history-graph .js-plotly-plot.episode-marker-hover .draglayer rect.drag {
+    cursor: pointer !important;
+}

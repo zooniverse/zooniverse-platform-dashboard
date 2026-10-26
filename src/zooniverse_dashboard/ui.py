@@ -3,13 +3,14 @@
 from __future__ import annotations
 
 import json
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
+from urllib.parse import parse_qs, urlencode
 
 import plotly.graph_objects as go
-from dash import Input, Output, callback, dcc, html
+from dash import Input, Output, callback, ctx, dcc, html, no_update
 
+from zooniverse_dashboard.anomalies.catalog import event_by_id, visible_events
 from zooniverse_dashboard.collection_config import effective_history_days
-from zooniverse_dashboard.detection import find_weekday_outliers
 from zooniverse_dashboard.periods import calendar_periods, visible_date_range
 from zooniverse_dashboard.snapshots import Snapshot, load_snapshot
 
@@ -73,6 +74,7 @@ def layout_for(source: str):
         )
     return html.Div(
         [
+            dcc.Location(id=f"{source}-route", refresh=True),
             html.Div("PLATFORM METRICS · " + provider, className="kicker"),
             html.H1(title),
             html.P(
@@ -151,6 +153,7 @@ def layout_for(source: str):
                     dcc.Loading(
                         dcc.Graph(
                             id=f"{source}-graph",
+                            className="history-graph",
                             config={
                                 "displaylogo": False,
                                 "responsive": True,
@@ -162,8 +165,8 @@ def layout_for(source: str):
                         type="circle",
                     ),
                     html.P(
-                        "Red and amber diamonds indicate experimental statistical deviations, "
-                        "not confirmed abuse or outages.",
+                        "Diamonds mark the start of an anomaly episode. Click one for "
+                        "statistical details; they are not confirmed incidents.",
                         className="muted",
                     ),
                 ],
@@ -173,7 +176,9 @@ def layout_for(source: str):
     )
 
 
-def history_figure(snapshot: Snapshot, *, window: str = "90") -> go.Figure:
+def history_figure(
+    snapshot: Snapshot, *, window: str = "90", focus_event: dict | None = None
+) -> go.Figure:
     """Show the complete series with a constrained, pannable initial viewport."""
     visible_first, visible_last = visible_date_range(
         first=snapshot.first, last=snapshot.last, window=window
@@ -202,24 +207,30 @@ def history_figure(snapshot: Snapshot, *, window: str = "90") -> go.Figure:
             hovertemplate="%{x}: %{y:,.0f}<extra></extra>",
         )
     )
-    outliers = find_weekday_outliers(snapshot.counts())
+    events, _statuses = visible_events()
     for direction, color, title in (
-        ("spike", "#c53f42", "Unusual increase"),
-        ("drop", "#bc7919", "Unusual decrease"),
+        ("spike", "#c53f42", "Unusual increase episode"),
+        ("drop", "#bc7919", "Unusual decrease episode"),
     ):
-        selected = [outlier for outlier in outliers if outlier.direction == direction]
+        selected = [
+            event
+            for event in events
+            if event["source"] == snapshot.source and event["direction"] == direction
+        ]
         if selected:
+            row_by_date = dict(snapshot.daily)
             fig.add_trace(
                 go.Scatter(
-                    x=[v.day.isoformat() for v in selected],
-                    y=[v.observed for v in selected],
+                    x=[v["detected"] for v in selected],
+                    y=[row_by_date.get(date.fromisoformat(v["detected"]), 0) for v in selected],
                     name=title,
                     mode="markers",
-                    marker={"color": color, "symbol": "diamond", "size": 10},
-                    customdata=[[v.baseline, v.score] for v in selected],
-                    hovertemplate="%{x}: %{y:,}<br>Weekday baseline: "
-                    "%{customdata[0]:,.0f}<br>Score: "
-                    "%{customdata[1]:+.1f}<extra></extra>",
+                    marker={"color": color, "symbol": "diamond", "size": 12},
+                    customdata=[[v["id"], v["start"], v["end"]] for v in selected],
+                    hovertemplate=(
+                        "%{x}: %{y:,}<br>Episode %{customdata[1]}–%{customdata[2]}"
+                        "<br>Click for details<extra></extra>"
+                    ),
                 )
             )
     fig.update_layout(
@@ -238,19 +249,56 @@ def history_figure(snapshot: Snapshot, *, window: str = "90") -> go.Figure:
         legend={"orientation": "h", "y": 1.12, "x": 0},
         uirevision=f"{snapshot.source}-{window}",
     )
+    if focus_event is not None and focus_event["source"] == snapshot.source:
+        begin = max(snapshot.first, date.fromisoformat(focus_event["start"]) - timedelta(days=7))
+        end = min(snapshot.last, date.fromisoformat(focus_event["end"]) + timedelta(days=7))
+        fig.update_xaxes(range=[begin.isoformat(), (end + timedelta(days=1)).isoformat()])
+        visible_counts = [count for day, count in snapshot.daily if begin <= day <= end]
+        if visible_counts:
+            fig.update_yaxes(range=[0, max(1, max(visible_counts)) * 1.15])
+        fig.update_layout(uirevision=f"{snapshot.source}-focus-{focus_event['id']}")
     return fig
 
 
 def register_history_callback(source: str):
-    """Each page registers exactly one callback to read its JSON snapshot."""
+    """Register snapshot-backed chart navigation and marker hover affordances."""
 
-    @callback(Output(f"{source}-graph", "figure"), Input(f"{source}-window", "value"))
-    def update(window):
+    @callback(
+        Output(f"{source}-graph", "figure"),
+        Input(f"{source}-route", "search"),
+        Input(f"{source}-window", "value"),
+    )
+    def update(search, window):
+        event_id = parse_qs((search or "").lstrip("?")).get("episode", [None])[0]
+        route_changed = f"{source}-route.search" in ctx.triggered_prop_ids
+        window_changed = f"{source}-window.value" in ctx.triggered_prop_ids
+        focus = (
+            event_by_id(event_id, source=source)
+            if isinstance(event_id, str) and (route_changed or not window_changed)
+            else None
+        )
         try:
-            return history_figure(load_snapshot(source), window=window)
+            return history_figure(load_snapshot(source), window=window, focus_event=focus)
         except (OSError, ValueError, TypeError, KeyError, json.JSONDecodeError):
             fig = go.Figure()
             fig.add_annotation(text="Aggregate snapshot unavailable", showarrow=False)
             return fig
+
+    @callback(
+        Output(f"{source}-route", "href"),
+        Input(f"{source}-graph", "clickData"),
+        prevent_initial_call=True,
+    )
+    def open_anomaly(click_data):
+        if not click_data:
+            return no_update
+        for point in click_data.get("points", []):
+            custom = point.get("customdata")
+            if not isinstance(custom, (list, tuple)) or not custom:
+                continue
+            event_id = custom[0]
+            if isinstance(event_id, str) and event_by_id(event_id, source=source):
+                return "/anomalies?" + urlencode({"event": event_id})
+        return no_update
 
     return update

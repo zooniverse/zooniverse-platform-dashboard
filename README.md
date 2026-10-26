@@ -136,3 +136,33 @@ creates a navigable reference from the source without importing runtime code.
   Very long ERAS operations should use the CLI rather than the web button.
 - All anomaly flags are uncalibrated statistical observations, never accusations
   about user behavior or production security alerts.
+
+### Offline anomaly episodes
+
+The old weekday-MAD chart markers are replaced by selected NB2 episode markers.
+The new **Anomalies** navigation page shows episodes, evidence from the
+calendar-aware/baseline NB2 model and/or rolling empirical rarity, and links to
+the source chart. Clicking a chart diamond highlights the episode on that page.
+The anomaly calculations run **outside Dash** and consume only aggregate JSON.
+
+Install the optional analysis dependencies in the environment that can access
+`ANALYTICS_DATA_DIR` (the same shared volume used by the dashboard):
+
+```bash
+python -m pip install -e '.[analysis]'
+# Run after refreshing the data snapshots, or at any time for offline reanalysis:
+rebuild-anomalies
+# Equivalently:
+python -m zooniverse_dashboard.anomalies
+```
+
+The catalog is stored at `${ANALYTICS_DATA_DIR}/anomalies.json`; it is rewritten
+atomically and rechecked against each source's snapshot modification timestamp.
+If you refresh a source but do not rebuild the anomaly catalog, that source's
+stale markers disappear until reanalysis; the metric graph still works normally.
+In Docker, install the analysis extras in the image and run:
+`docker compose -f deploy/compose.yml exec dashboard rebuild-anomalies`.
+This may take time; do not run it from a per-request Dash callback. For early
+versions, analysis covers **at most 730 recent days**, not the entire platform
+history. Insufficient history yields no events and an explicit notice. This is
+quick-inspection statistical context, not an incident-alerting system.
