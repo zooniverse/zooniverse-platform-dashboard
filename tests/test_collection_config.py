@@ -92,7 +92,7 @@ def test_cli_refresh_is_argument_free(monkeypatch):
     called = []
     monkeypatch.setattr(
         cli,
-        "refresh_all",
+        "refresh_and_rebuild",
         lambda: (
             called.append(True),
             {"state": "ok", "streams": {"users": "ok", "classifications": "ok", "talks": "ok"}},

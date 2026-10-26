@@ -6,15 +6,16 @@ import argparse
 
 from zooniverse_dashboard.collection_config import effective_history_days, set_history_days
 from zooniverse_dashboard.logging_utils import configure_refresh_logging
-from zooniverse_dashboard.refresh import RefreshRejected, refresh_all, refresh_lock
+from zooniverse_dashboard.pipeline import refresh_and_rebuild
+from zooniverse_dashboard.refresh import RefreshRejected, refresh_lock
 
 
 def refresh_data() -> None:
-    """Refresh all daily snapshots with the shared lock and cooldown."""
+    """Refresh snapshots and rebuild anomaly catalog with shared safeguards."""
     argparse.ArgumentParser(description="Refresh all Zooniverse aggregate snapshots").parse_args()
     logger = configure_refresh_logging()
     try:
-        result = refresh_all()
+        result = refresh_and_rebuild()
     except RefreshRejected:
         logger.error("event=refresh_cli_exit result=rejected")
         raise SystemExit(2) from None

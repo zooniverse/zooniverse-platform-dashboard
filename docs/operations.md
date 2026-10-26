@@ -137,3 +137,28 @@ The existing `refresh_status.json` remains the minimal persistent status file:
 it is *not* an exhaustive audit log. For historical troubleshooting, rely on the
 container platform's log retention and access controls. Avoid routing logs into
 public or unprotected storage.
+
+## One-click refresh and anomaly rebuild
+
+Click **Refresh data** to run the same pipeline as `refresh-data`: refresh all
+three aggregate sources, then rebuild the local anomaly catalog. A live
+step-by-step panel displays validated progress while a Dash Diskcache
+background worker handles the operation. When the job finishes, the current
+page reloads automatically (including its URL and filters). No automatic
+collection schedule is enabled.
+
+The background-job cache lives under `ANALYTICS_DATA_DIR/dash-background-jobs`
+and must be writable by the web process; install `dash[diskcache]` (included in
+the base project dependencies). The existing shared POSIX refresh lock and
+one-hour cooldown still prevent competing refreshes across Gunicorn workers.
+The cached job output contains only progress labels, not provider responses,
+SQL results or credentials. Do not expose the refresh button to untrusted
+visitors; use an authenticated ingress.
+
+If a source fails, its prior validated snapshot remains available, and the
+anomaly builder runs on the snapshots currently present. Catalog publishing
+is atomic. Rejected overlapping/cooldown requests do not launch analysis.
+The progress panel never prints raw exception strings. The saved refresh status
+shows source failures, and the dashboard status line indicates how many anomaly
+analyses match their current snapshots. A failed anomaly rebuild leaves any previous catalog
+untouched, and stale episode markers are withheld until rebuilt.

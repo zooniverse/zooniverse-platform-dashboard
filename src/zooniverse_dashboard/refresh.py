@@ -183,7 +183,7 @@ def refresh_source(
         raise
 
 
-def refresh_all(*, root: Path | None = None, now: datetime | None = None) -> dict:
+def refresh_all(*, root: Path | None = None, now: datetime | None = None, progress=None) -> dict:
     """Synchronous, serialized on-demand refresh; no scheduler is started."""
     started = time.perf_counter()
     run_id = uuid.uuid4().hex[:12]
@@ -217,12 +217,18 @@ def refresh_all(*, root: Path | None = None, now: datetime | None = None) -> dic
                 "streams": {name: "pending" for name in SOURCES},
             }
             _write_status(folder, status)
+            if progress is not None:
+                progress("Retrieving validated daily aggregates...")
             for source in SOURCES:
                 source_started = time.perf_counter()
                 LOG.info("event=source_started run=%s source=%s", run_id, source)
+                if progress is not None:
+                    progress(f"Fetching {source} aggregates...")
                 try:
                     refresh_source(source, through=through, root=folder, history_days=days)
                     status["streams"][source] = "ok"
+                    if progress is not None:
+                        progress(f"{source}: snapshot validated and published")
                     LOG.info(
                         "event=source_succeeded run=%s source=%s elapsed_ms=%.1f",
                         run_id,
@@ -232,6 +238,8 @@ def refresh_all(*, root: Path | None = None, now: datetime | None = None) -> dic
                 except Exception as exc:
                     # Never log exception messages: drivers can embed sensitive URLs.
                     status["streams"][source] = "failed"
+                    if progress is not None:
+                        progress(f"{source}: refresh failed; previous valid snapshot retained")
                     LOG.warning(
                         "event=source_status_failed run=%s source=%s error_type=%s "
                         "elapsed_ms=%.1f",

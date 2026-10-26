@@ -166,3 +166,12 @@ This may take time; do not run it from a per-request Dash callback. For early
 versions, analysis covers **at most 730 recent days**, not the entire platform
 history. Insufficient history yields no events and an explicit notice. This is
 quick-inspection statistical context, not an incident-alerting system.
+
+### Refresh workflow
+
+Both the **Refresh data** button and the argument-free `refresh-data` command
+run the entire pipeline: validate/publish each daily aggregate snapshot,
+then rebuild the anomaly catalog. Dash shows a live progress panel instead
+of a loading spinner and reloads the current page after completion.
+The background worker uses the persistent `ANALYTICS_DATA_DIR` volume.
+See [operations](docs/operations.md) for concurrency and failure behavior.

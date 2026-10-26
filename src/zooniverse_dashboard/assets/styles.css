@@ -90,6 +90,14 @@ h2 { font-size: 1.15rem; margin: .5rem 0 1.5rem; }
     color: white; padding: .55rem .8rem; text-decoration: none; font-size: .86rem; }
 .episode-graph-link:hover { color: white; background: #14566a; }
 
+/* Live, text-first refresh feedback; no indeterminate loading wheel. */
+.refresh-progress-panel { width: min(1100px, calc(100% - 3rem)); margin: 1rem auto 0;
+    padding: 1rem 1.25rem; border: 1px solid #b7dae4; background: #eef8fa;
+    border-radius: .65rem; }
+.refresh-progress-panel h2 { margin: 0 0 .6rem; font-size: .95rem; }
+.refresh-step-list { margin: 0; padding-left: 1.4rem; font-size: .85rem; line-height: 1.65; }
+.manual-refresh-bar button:disabled { cursor: not-allowed; opacity: .6; }
+
 /* Cursor is controlled on Plotly's actual drag targets, not Dash React props.
    JS activates this class only while the pointer is on an episode diamond. */
 .history-graph .js-plotly-plot.episode-marker-hover .draglayer rect.drag {
