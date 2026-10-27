@@ -68,5 +68,6 @@ anomaly_detection
 operations
 privacy
 publishing
+ci
 api
 ```
