@@ -7,11 +7,22 @@ from importlib import import_module
 import pytest
 
 
+def test_gunicorn_entrypoint_exposes_wsgi_server():
+    """The Docker CMD uses `gunicorn app:server`, not Dash's `app` object."""
+    pytest.importorskip("dash")
+    entrypoint = import_module("app")
+    application = import_module("zooniverse_dashboard.app")
+    assert entrypoint.server is application.server
+
+
 def test_root_redirect_and_refresh_control():
     pytest.importorskip("dash")
     from zooniverse_dashboard.app import app
 
     client = app.server.test_client()
+    health = client.get("/healthz")
+    assert health.status_code == 200
+    assert health.get_json() == {"status": "ok"}
     response = client.get("/")
     assert response.status_code in (301, 302, 307, 308)
     assert "/users" in response.headers.get("Location", "")

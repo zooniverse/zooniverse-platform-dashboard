@@ -49,3 +49,16 @@ jobs:
 
       - name: Offline unit and application tests
         run: pytest -q
+
+  docker-smoke:
+    name: Build and smoke-test Docker runtime
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - name: Build image
+        run: docker build --platform linux/amd64 --tag zooniverse-platform-dashboard:smoke .
+      - name: Start container and verify runtime
+        run: bash scripts/docker_smoke.sh zooniverse-platform-dashboard:smoke

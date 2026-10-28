@@ -19,6 +19,13 @@ ruff check app.py src tests
 pytest -q
 ```
 
+A separate `docker-smoke` job builds the Dockerfile and launches its image
+on an ephemeral localhost port. It validates the WSGI startup, main routes,
+health endpoint, runtime user, and persistent volume across restart with
+`scripts/docker_smoke.sh`; it requires neither upstream credentials nor live
+ERAS access. Both Python checks and this Docker smoke test must pass before
+a version-tag publishing workflow can proceed.
+
 Tests must run offline using synthetic/aggregate fixtures. They must not depend
 on production credentials, service availability, real volunteer records, or a
 live Panoptes/ERAS query. Pull-request checks run without deployment secrets.
@@ -26,13 +33,13 @@ live Panoptes/ERAS query. Pull-request checks run without deployment secrets.
 ## Build and publish the container image
 
 `.github/workflows/container.yml` runs only when a version tag such as
-`v1.0.0` is pushed. It **first runs the reusable test workflow**, then builds
-the repository's `Dockerfile` for `linux/amd64`:
+`v1.0.0` is pushed. It **first runs the reusable Python and Docker smoke-test workflow**, then
+builds the repository's `Dockerfile` for `linux/amd64`:
 
 | Trigger | Test and build | Publish to GHCR |
 |---|---|---|
-| Pull request | Tests only (separate workflow) | No |
-| Push to `main` | Tests only (separate workflow) | No |
+| Pull request | Python checks + Docker build and smoke test | No |
+| Push to `main` | Python checks + Docker build and smoke test | No |
 | Push a `v*` tag | Yes | Yes |
 
 Images are published to **GitHub Container Registry (GHCR)** under the lower-case

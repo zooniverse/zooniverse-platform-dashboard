@@ -38,8 +38,7 @@ POSIX file locks, so local collection is designed for macOS/Linux or a Linux
 container (Windows developers can use WSL2).
 
 The extras separate concerns: `dev` for tests and linting, `docs` for Sphinx,
-`server` for Gunicorn, and `analysis` for offline NB2 calculations. Dash's
-The web refresh worker runs as a separate Python interpreter using the same
+`server` for Gunicorn, and `analysis` for offline NB2 calculations. The web refresh worker runs as a separate Python interpreter using the same
 installed project and environment as the web server. There is no separate research package required.
 
 ## 2. Configure local settings
@@ -117,7 +116,27 @@ With a short history limit the dashboard may display KPI charts but have too
 little history for NB2 detection; anomaly analysis typically needs at least
 911 daily buckets for training and calibration warm-up.
 
-## 4. Optional: run with Docker Compose
+## 4. Validate the Docker image before a release
+
+Build the same `linux/amd64` architecture used by the release workflow,
+without any Panoptes credentials (Apple Silicon Macs may use emulation):
+
+```bash
+docker build --platform linux/amd64 -t zooniverse-platform-dashboard:smoke .
+bash scripts/docker_smoke.sh zooniverse-platform-dashboard:smoke
+```
+
+The smoke test launches Gunicorn inside the image on a randomly mapped
+localhost port. It checks `/healthz`, all four page routes, Dash layout,
+CSS, the non-root runtime user, and the ability to write a persistent setting
+to `/data` across a container restart. It cleans up its test container and
+volume, and prints server logs if an assertion fails. **It does not collect
+live aggregates** or establish a production database connection.
+
+The same smoke test runs automatically on pull requests and main-branch pushes,
+and is a prerequisite for version-tag image publication.
+
+## 5. Optional: run with Docker Compose
 
 ```bash
 # Edit .env with the same authorized read-only Panoptes connection.
@@ -141,7 +160,7 @@ deployment, place an authenticated TLS ingress/SSO/VPN in front of the **entire*
 dashboard, including its refresh control. See [Privacy](privacy.md) and
 [Operations](operations.md) before deploying.
 
-## 5. Developer checks
+## 6. Developer checks
 
 ```bash
 black --check app.py src tests
