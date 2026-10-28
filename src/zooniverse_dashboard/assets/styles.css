@@ -96,6 +96,10 @@ h2 { font-size: 1.15rem; margin: .5rem 0 1.5rem; }
     border-radius: .65rem; }
 .refresh-progress-panel h2 { margin: 0 0 .6rem; font-size: .95rem; }
 .refresh-step-list { margin: 0; padding-left: 1.4rem; font-size: .85rem; line-height: 1.65; }
+.refresh-success-banner { width: min(1100px, calc(100% - 3rem)); margin: .65rem auto 0;
+    padding: .7rem 1rem; border: 1px solid #a8d7ba; background: #edf9f0;
+    color: #185c35; border-radius: .5rem; font-size: .88rem; font-weight: 600; }
+.refresh-success-banner::before { content: "\2713"; margin-right: .55rem; }
 .manual-refresh-bar button:disabled { cursor: not-allowed; opacity: .6; }
 
 /* Cursor is controlled on Plotly's actual drag targets, not Dash React props.

@@ -265,8 +265,8 @@ Or click **Refresh data** in the dashboard. In both cases, the pipeline:
    source. A failed source retains its previous valid snapshot.
 3. Runs the offline anomaly builder against whichever validated snapshots are
    available and atomically publishes a new catalog.
-4. Reports progress. The Dash version uses a Diskcache background callback and
-   reloads the current page when processing finishes.
+4. Reports progress. The Dash version schedules a detached worker, polls its durable progress,
+   and reloads the current page only after full success.
 
 For an **offline-only** catalog rebuild, without another collection:
 

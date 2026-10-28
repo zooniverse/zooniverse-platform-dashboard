@@ -100,9 +100,10 @@ installed.
 
 Both entry points—`refresh-data` in the terminal and **Refresh data** in the
 web dashboard—use the same refresh coordinator and log the same operational
-steps. Logs go to **standard error** (shown in a terminal and captured by
-Docker/Gunicorn logging). Nothing writes a separate log file to the analytics
-volume.
+steps. CLI logs go to **standard error** (shown in a terminal); the detached web
+worker writes sanitized diagnostics to `ANALYTICS_DATA_DIR/refresh-worker.log`
+(mode 0600) because it is not attached to the Gunicorn output stream. Retain
+and rotate this private file according to the operator's log-retention policy.
 
 ```bash
 refresh-data
@@ -133,27 +134,40 @@ A second click during the one-hour cooldown logs `refresh_rejected`. Failed
 sources retain their previous valid JSON; an attempt with partial failures logs
 `state=partial_failure` and `refresh-data` returns exit status 1. A rejected
 CLI attempt returns exit status 2. Successful CLI runs return exit status 0.
-The existing `refresh_status.json` remains the minimal persistent status file:
-it is *not* an exhaustive audit log. For historical troubleshooting, rely on the
-container platform's log retention and access controls. Avoid routing logs into
-public or unprotected storage.
+The existing `refresh_status.json` records the collection stage and is updated
+**after each individual source**. The separate `refresh_job.json` reports the
+end-to-end worker state and progress, including anomaly rebuilding. Neither is
+an exhaustive audit log; keep the worker log on private storage.
 
 ## One-click refresh and anomaly rebuild
 
 Click **Refresh data** to run the same pipeline as `refresh-data`: refresh all
-three aggregate sources, then rebuild the local anomaly catalog. A live
-step-by-step panel displays validated progress while a Dash Diskcache
-background worker handles the operation. When the job finishes, the current
-page reloads automatically (including its URL and filters). No automatic
-collection schedule is enabled.
+three aggregate sources, then rebuild the local anomaly catalog. The web
+request schedules a **detached Python subprocess**; Dash polls its small,
+atomically published `refresh_job.json` every second to render a step-by-step
+progress panel. The job does not depend on browser navigation, Dash callback
+polling, or a live page. The browser reloads the same URL **only after the job
+reports full success**. After reloading, the detailed progress panel is
+replaced by a compact green success banner for one minute, after which it
+hides automatically. Failures and partial successes retain their details in
+the panel instead of hiding stale-data warnings. No automatic collection
+schedule is enabled.
 
-The background-job cache lives under `ANALYTICS_DATA_DIR/dash-background-jobs`
-and must be writable by the web process; install `dash[diskcache]` (included in
-the base project dependencies). The existing shared POSIX refresh lock and
-one-hour cooldown still prevent competing refreshes across Gunicorn workers.
-The cached job output contains only progress labels, not provider responses,
-SQL results or credentials. Do not expose the refresh button to untrusted
-visitors; use an authenticated ingress.
+The job uses the same interpreter and runtime environment as the web server.
+`ANALYTICS_DATA_DIR` must be writable, and the worker needs the same read-only
+Panoptes access as the CLI. Single-host POSIX file locks coordinate admission,
+worker lifetime and existing 60-minute collection cooldown. If the worker
+vanishes without finalizing its status, a stale `queued`/`running` job is
+reported as **interrupted** after a brief startup grace, provided no worker
+still holds its job lock. Read-only snapshot loading remains unchanged.
+
+The private `refresh-worker.log` contains sanitized operational logging; it may
+be inspected after an interruption without printing SQL, URL strings, provider
+responses or exception messages. File access must be restricted to operators.
+Do not expose the refresh button to untrusted visitors; use authenticated
+ingress. This implementation assumes a **single application replica and one
+shared POSIX-locking volume**. A distributed deployment would require a
+proper external job queue and shared job status store.
 
 If a source fails, its prior validated snapshot remains available, and the
 anomaly builder runs on the snapshots currently present. Catalog publishing

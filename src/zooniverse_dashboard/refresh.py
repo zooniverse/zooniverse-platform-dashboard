@@ -227,6 +227,7 @@ def refresh_all(*, root: Path | None = None, now: datetime | None = None, progre
                 try:
                     refresh_source(source, through=through, root=folder, history_days=days)
                     status["streams"][source] = "ok"
+                    _write_status(folder, status)
                     if progress is not None:
                         progress(f"{source}: snapshot validated and published")
                     LOG.info(
@@ -238,6 +239,7 @@ def refresh_all(*, root: Path | None = None, now: datetime | None = None, progre
                 except Exception as exc:
                     # Never log exception messages: drivers can embed sensitive URLs.
                     status["streams"][source] = "failed"
+                    _write_status(folder, status)
                     if progress is not None:
                         progress(f"{source}: refresh failed; previous valid snapshot retained")
                     LOG.warning(

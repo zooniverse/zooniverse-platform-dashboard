@@ -32,9 +32,8 @@ Runs the same pipeline as clicking **Refresh data** in the UI:
 4. Rebuild `anomalies.json` from available validated snapshots, then report the
    overall outcome.
 
-The command writes progress to terminal logs. The UI uses a Dash background
-callback to display progress and automatically reload when finished. A durable
-**60-minute cooldown** and cross-process lock prevent repeated/concurrent
+The command writes progress to terminal logs. The UI starts a detached Python worker and polls durable status to display
+progress and automatically reload after full success. A durable **60-minute cooldown** and cross-process lock prevent repeated/concurrent
 refreshes. On source failure, the previous validated snapshot remains in place;
 anomaly results that no longer match a source snapshot are withheld as stale.
 The aggregate refresh can partially succeed; inspect the reported state and

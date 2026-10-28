@@ -39,8 +39,8 @@ container (Windows developers can use WSL2).
 
 The extras separate concerns: `dev` for tests and linting, `docs` for Sphinx,
 `server` for Gunicorn, and `analysis` for offline NB2 calculations. Dash's
-Diskcache background callback dependencies are installed with the application's
-normal requirements. There is no separate research package required.
+The web refresh worker runs as a separate Python interpreter using the same
+installed project and environment as the web server. There is no separate research package required.
 
 ## 2. Configure local settings
 
@@ -64,7 +64,7 @@ DASH_DEBUG=false
 | Setting | Purpose |
 |---|---|
 | `DB_URL_PANOPTES` | Server-side SQLAlchemy/PostgreSQL URL using a read-only Panoptes role; required for refreshing registrations |
-| `ANALYTICS_DATA_DIR` | Persistent, writable directory for daily JSON snapshots, anomaly catalog, refresh status, locks and background-job state |
+| `ANALYTICS_DATA_DIR` | Persistent, writable directory for daily JSON snapshots, anomaly catalog, refresh and job status, private worker logs and locks |
 | `ANALYTICS_HISTORY_DAYS` | `0` or unset = all available history; positive integer = this many **completed UTC days** |
 | `DASH_HOST`, `PORT` | Local interface and port (defaults `127.0.0.1:8050`) |
 | `DASH_DEBUG` | `false` for normal operation; avoid exposing debug mode publicly |

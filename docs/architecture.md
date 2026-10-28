@@ -15,7 +15,8 @@ Read-only Panoptes PostgreSQL    Public ERAS counts
      users / classifications / talks
 ```
 
-The refresh callback is the **only** web path allowed to reach remote sources.
+The web button starts a detached refresh worker; that worker is the **only**
+web-triggered path allowed to reach remote sources.
 Page functions and Plotly callbacks operate exclusively on JSON snapshots. A source
 failure does not replace the last valid snapshot for that source. A separate small
 status file records generic success/failure states without exception text.
@@ -47,9 +48,9 @@ are preserved separately and grouped into episodes. The old weekday-MAD
 chart detector is no longer used.
 
 The `refresh-data` CLI and Dash **Refresh data** button share a single
-refresh-then-rebuild pipeline. For the browser, Dash runs the longer operation
-as a Diskcache background callback and displays progress before reloading the
-current page. `rebuild-anomalies` also supports analysis without refreshing
+refresh-then-rebuild pipeline. For the browser, Dash schedules a detached worker that writes durable progress
+to `refresh_job.json`; the UI polls status and reloads the current page only
+on success. `refresh_status.json` also records each completed source. `rebuild-anomalies` also supports analysis without refreshing
 remote data. The analysis writes an atomic `anomalies.json` on the same
 volume; Dash only reads the catalog, hides results whose source revision
 no longer matches, and never fits the numerical model during navigation.

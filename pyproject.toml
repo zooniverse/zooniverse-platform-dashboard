@@ -9,7 +9,7 @@ description = "Internal platform-wide aggregate analytics for Zooniverse"
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
-  "dash[diskcache]>=3.1,<4",
+  "dash>=3.1,<4",
   "plotly>=6.0,<7",
   "SQLAlchemy>=2.0,<3",
   "psycopg[binary]>=3.1,<4",

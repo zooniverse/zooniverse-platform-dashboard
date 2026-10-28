@@ -77,7 +77,7 @@ content**. The deployment system must provide:
 - any network allowlisting/VPN requirements for accessing Panoptes.
 
 The service is designed for a single replica with a shared writable filesystem;
-it uses a POSIX lock and Diskcache background work. Do not scale replicas or
+it uses POSIX locks and a detached local refresh worker. Do not scale replicas or
 expose the refresh endpoint publicly without revisiting the architecture.
 
 Once the administrators select a deployment platform, they can pull the
