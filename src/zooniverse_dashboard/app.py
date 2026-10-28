@@ -89,7 +89,9 @@ def create_app() -> Dash:
                 role="status",
                 style={"display": "none"},
             ),
-            dcc.Interval(id="refresh-progress-poll", interval=1_000, n_intervals=0),
+            # Fast polling is enabled only while a refresh job is active.
+            # The slow status poll also detects jobs started by other sessions.
+            dcc.Interval(id="refresh-progress-poll", interval=1_000, n_intervals=0, disabled=True),
             dcc.Interval(id="refresh-status-poll", interval=60_000, n_intervals=0),
             html.Div(id="refresh-system-status", className="refresh-system-status"),
             html.Main(page_container, className="page-container"),
@@ -126,18 +128,20 @@ def create_app() -> Dash:
         Output("refresh-completion", "data"),
         Output("refresh-success", "children"),
         Output("refresh-success", "style"),
+        Output("refresh-progress-poll", "disabled"),
         Input("refresh-progress-poll", "n_intervals"),
         Input("refresh-run", "data"),
+        Input("refresh-status-poll", "n_intervals"),
     )
-    def job_progress(_tick, run_id):
-        """Show detailed progress only while running or when a run fails."""
+    def job_progress(_tick, run_id, _status_tick):
+        """Poll quickly only for active jobs, including jobs from other sessions."""
         hidden = {"display": "none"}
         try:
             job = load_job()
         except (OSError, ValueError, TypeError, KeyError):
-            return "Refresh progress unavailable", hidden, False, None, "", hidden
+            return "Refresh progress unavailable", hidden, False, None, "", hidden, True
         if job is None:
-            return "No refresh job", hidden, False, None, "", hidden
+            return "No refresh job", hidden, False, None, "", hidden, True
 
         status = job["state"]
         same_run = run_id is not None and job["run_id"] == run_id
@@ -161,13 +165,14 @@ def create_app() -> Dash:
                     "Data refreshed successfully — Users, Classifications, Talk, and "
                     "anomaly analysis are up to date.",
                     {"display": "block"},
+                    True,
                 )
-            return "", hidden, False, None, "", hidden
+            return "", hidden, False, None, "", hidden, True
 
         # Show running jobs even when a browser opens mid-refresh. A completed
         # unsuccessful run is only shown to the browser session that started it.
         if not (active or same_run):
-            return "No active refresh", hidden, False, None, "", hidden
+            return "No active refresh", hidden, False, None, "", hidden, True
         steps = [html.Li(item) for item in job["steps"]]
         if status in ("failed", "interrupted", "rejected"):
             steps.append(html.Li(f"Refresh {status}; existing snapshots retained"))
@@ -180,6 +185,7 @@ def create_app() -> Dash:
             None,
             "",
             hidden,
+            not active,
         )
 
     # The session Store survives navigation and even an unexpected page reload.

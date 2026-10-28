@@ -23,6 +23,23 @@ def test_root_redirect_and_refresh_control():
     assert "Data sources" not in ids
     assert "refresh-success" in ids
 
+    # Idle tabs must not issue one POST every second.
+    def components(node):
+        if isinstance(node, dict):
+            yield node
+            for value in node.values():
+                yield from components(value)
+        elif isinstance(node, list):
+            for value in node:
+                yield from components(value)
+
+    fast_poll = next(
+        node
+        for node in components(layout.get_json())
+        if node.get("props", {}).get("id") == "refresh-progress-poll"
+    )
+    assert fast_poll["props"]["disabled"] is True
+
 
 def test_refresh_progress_hides_after_success_and_shows_short_confirmation(monkeypatch):
     """An automatic reload must not reopen the completed checklist."""
@@ -43,8 +60,20 @@ def test_refresh_progress_hides_after_success_and_shows_short_confirmation(monke
     ]
     assert len(callbacks) == 1
     progress = callbacks[0]
+    # Both local job admission and the slow status tick can wake up polling.
+    callback = next(
+        entry
+        for output, entry in module.app.callback_map.items()
+        if "refresh-steps.children" in output
+    )
+    assert {item["id"] for item in callback["inputs"]} == {
+        "refresh-progress-poll",
+        "refresh-run",
+        "refresh-status-poll",
+    }
 
-    steps, panel, disabled, completion, confirmation, banner = progress(1, run_id)
+    steps, panel, disabled, completion, confirmation, banner, poll_disabled = progress(1, run_id, 0)
+    assert poll_disabled is True
     assert panel == {"display": "none"}
     assert not disabled
     assert steps == ""
@@ -54,25 +83,28 @@ def test_refresh_progress_hides_after_success_and_shows_short_confirmation(monke
 
     # After a minute, no obsolete success message remains on other pages.
     job["finished_at_utc"] = (datetime.now(timezone.utc) - timedelta(minutes=2)).isoformat()
-    _, panel, _, completion, confirmation, banner = progress(2, run_id)
+    _, panel, _, completion, confirmation, banner, poll_disabled = progress(2, run_id, 1)
+    assert poll_disabled is True
     assert panel == banner == {"display": "none"}
     assert completion is None
     assert confirmation == ""
 
     # While the job is executing, show detailed steps and disable the button.
     job["state"] = "running"
-    _, panel, disabled, completion, confirmation, banner = progress(3, run_id)
+    _, panel, disabled, completion, confirmation, banner, poll_disabled = progress(3, run_id, 1)
     assert panel == {"display": "block"}
     assert disabled
+    assert poll_disabled is False
     assert completion is None
     assert confirmation == ""
     assert banner == {"display": "none"}
 
     # A failed run preserves the actionable progress details instead.
     job["state"] = "partial_failure"
-    _, panel, disabled, completion, confirmation, banner = progress(3, run_id)
+    _, panel, disabled, completion, confirmation, banner, poll_disabled = progress(3, run_id, 1)
     assert panel == {"display": "block"}
     assert not disabled
+    assert poll_disabled is True
     assert completion is None
     assert confirmation == ""
     assert banner == {"display": "none"}
@@ -80,7 +112,36 @@ def test_refresh_progress_hides_after_success_and_shows_short_confirmation(monke
     # The compact confirmation is scoped to the initiating browser session.
     job["state"] = "ok"
     job["finished_at_utc"] = datetime.now(timezone.utc).isoformat()
-    _, panel, _, completion, confirmation, banner = progress(4, "b" * 32)
+    _, panel, _, completion, confirmation, banner, poll_disabled = progress(4, "b" * 32, 2)
     assert panel == banner == {"display": "none"}
     assert completion is None
     assert confirmation == ""
+    assert poll_disabled is True
+
+    # A different session can start a job while this tab is idle. The slow
+    # status tick must wake fast polling without requiring a local click.
+    job["state"] = "queued"
+    _, panel, disabled, _, _, banner, poll_disabled = progress(4, "b" * 32, 3)
+    assert panel == {"display": "block"}
+    assert disabled
+    assert poll_disabled is False
+    assert banner == {"display": "none"}
+
+    job["state"] = "interrupted"
+    _, panel, disabled, _, _, _, poll_disabled = progress(5, run_id, 3)
+    assert panel == {"display": "block"}
+    assert not disabled
+    assert poll_disabled is True
+
+    # A new tab with no remembered run ID still observes active jobs.
+    job["state"] = "running"
+    _, panel, disabled, _, _, _, poll_disabled = progress(0, None, 0)
+    assert panel == {"display": "block"}
+    assert disabled
+    assert poll_disabled is False
+
+    monkeypatch.setattr(module, "load_job", lambda: None)
+    _, panel, disabled, _, _, _, poll_disabled = progress(0, None, 1)
+    assert panel == {"display": "none"}
+    assert not disabled
+    assert poll_disabled is True

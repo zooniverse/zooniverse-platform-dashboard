@@ -79,10 +79,10 @@ cooldown if necessary.
   volume; multiple isolated replicas are not supported.
 
 The cross-worker lock rejects simultaneous refreshes, and the coordinator
-refuses a second refresh attempt within 60 minutes. The refresh button runs
-synchronously in a Gunicorn worker. Large ERAS responses may hit API limits or
-the web request timeout; the CLI is useful for explicitly running such a
-collection, but it is still subject to request validation and the cooldown.
+refuses a second refresh attempt within 60 minutes. The refresh button starts
+a detached worker rather than performing collection in the HTTP request.
+Large ERAS responses may still hit API limits; the CLI is useful for running a
+collection independently, but remains subject to validation and the cooldown.
 
 ## Access and deployment
 
@@ -143,13 +143,17 @@ an exhaustive audit log; keep the worker log on private storage.
 
 Click **Refresh data** to run the same pipeline as `refresh-data`: refresh all
 three aggregate sources, then rebuild the local anomaly catalog. The web
-request schedules a **detached Python subprocess**; Dash polls its small,
-atomically published `refresh_job.json` every second to render a step-by-step
-progress panel. The job does not depend on browser navigation, Dash callback
-polling, or a live page. The browser reloads the same URL **only after the job
+request schedules a **detached Python subprocess**. Dash polls its small,
+atomically published `refresh_job.json` every second **only while a job is
+queued or running**, to render the step-by-step progress panel. Fast polling
+is disabled when idle or after the job reaches a terminal state. An existing
+60-second status check can discover a refresh started in another browser
+session and turn fast polling on; opening the dashboard during an active job
+also enables it immediately. The job does not depend on browser navigation,
+Dash callback polling, or a live page. The browser reloads the same URL **only after the job
 reports full success**. After reloading, the detailed progress panel is
-replaced by a compact green success banner for one minute, after which it
-hides automatically. Failures and partial successes retain their details in
+replaced by a compact green success banner for about one minute. With fast
+polling stopped, the next regular status check clears it once expired. Failures and partial successes retain their details in
 the panel instead of hiding stale-data warnings. No automatic collection
 schedule is enabled.
 
