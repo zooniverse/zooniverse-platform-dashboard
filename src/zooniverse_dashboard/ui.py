@@ -10,6 +10,7 @@ import plotly.graph_objects as go
 from dash import Input, Output, callback, ctx, dcc, html, no_update
 
 from zooniverse_dashboard.anomalies.catalog import event_by_id, visible_events
+from zooniverse_dashboard.chart_data import bucket_start, group_daily
 from zooniverse_dashboard.collection_config import effective_history_days
 from zooniverse_dashboard.periods import calendar_periods, visible_date_range
 from zooniverse_dashboard.snapshots import Snapshot, load_snapshot
@@ -19,10 +20,24 @@ WINDOW_OPTIONS = [
 ] + [{"label": "All available", "value": "all"}]
 
 PAGE_CONFIG = {
-    "users": ("User registrations", "Daily registrations", "registrations", "Panoptes"),
-    "classifications": ("Classifications", "Daily classifications", "classifications", "ERAS"),
-    "talks": ("Talk activity", "Daily Talk comments", "comments", "ERAS"),
+    "users": ("User registrations", "Registration history", "registrations", "Panoptes"),
+    "classifications": ("Classifications", "Classification history", "classifications", "ERAS"),
+    "talks": ("Talk activity", "Talk comment history", "comments", "ERAS"),
 }
+
+INTERVAL_OPTIONS = [
+    {"label": label, "value": value}
+    for value, label in (
+        ("daily", "Day"),
+        ("weekly", "Week"),
+        ("monthly", "Month"),
+        ("yearly", "Year"),
+    )
+]
+PLOT_OPTIONS = [
+    {"label": "Line", "value": "line"},
+    {"label": "Bars", "value": "bars"},
+]
 
 
 def layout_for(source: str):
@@ -78,8 +93,9 @@ def layout_for(source: str):
             html.Div("PLATFORM METRICS · " + provider, className="kicker"),
             html.H1(title),
             html.P(
-                "Daily aggregated counts only. Weeks begin Monday; periods are UTC and "
-                "current week/month/year values are partial through the last collected day.",
+                "Daily aggregate snapshots, viewable as day/week/month/year totals. "
+                "Weeks begin Monday; all calendar periods use UTC. "
+                "Current and boundary periods may be partial.",
                 className="lead",
             ),
             html.Div(
@@ -143,9 +159,30 @@ def layout_for(source: str):
                                 className="registration-date-control",
                             ),
                             html.Div(
-                                "Drag to pan or use the range slider; navigation stays inside "
-                                "available dates.",
-                                className="muted",
+                                [
+                                    html.Label("Group by", htmlFor=f"{source}-interval"),
+                                    dcc.RadioItems(
+                                        id=f"{source}-interval",
+                                        options=INTERVAL_OPTIONS,
+                                        value="daily",
+                                        inline=True,
+                                        className="history-radio-group",
+                                    ),
+                                ],
+                                className="registration-date-control",
+                            ),
+                            html.Div(
+                                [
+                                    html.Label("Chart type", htmlFor=f"{source}-plot-type"),
+                                    dcc.RadioItems(
+                                        id=f"{source}-plot-type",
+                                        options=PLOT_OPTIONS,
+                                        value="line",
+                                        inline=True,
+                                        className="history-radio-group",
+                                    ),
+                                ],
+                                className="registration-date-control",
                             ),
                         ],
                         className="registration-filters",
@@ -165,8 +202,11 @@ def layout_for(source: str):
                         type="circle",
                     ),
                     html.P(
-                        "Diamonds mark the start of an anomaly episode. Click one for "
-                        "statistical details; they are not confirmed incidents.",
+                        "Drag a rectangle to zoom both axes. Choose Pan in the chart toolbar "
+                        "to move across dates, or use the range slider. The vertical scale "
+                        "adjusts to the visible data when panning or changing the date range. "
+                        "Daily views show clickable anomaly diamonds; other intervals show "
+                        "calendar totals without moving the daily anomaly dates.",
                         className="muted",
                     ),
                 ],
@@ -177,86 +217,140 @@ def layout_for(source: str):
 
 
 def history_figure(
-    snapshot: Snapshot, *, window: str = "90", focus_event: dict | None = None
+    snapshot: Snapshot,
+    *,
+    window: str = "90",
+    focus_event: dict | None = None,
+    interval: str = "daily",
+    plot_type: str = "line",
 ) -> go.Figure:
-    """Show the complete series with a constrained, pannable initial viewport."""
+    """Create a calendar-binned plot with a y range fitted to its initial viewport.
+
+    Daily anomaly events remain plotted at their exact detected UTC dates.
+    They are not shifted into a weekly/monthly/yearly bucket.
+    """
+    if plot_type not in {"line", "bars"}:
+        raise ValueError("Unsupported chart type")
+    bins = group_daily(snapshot.daily, interval)
     visible_first, visible_last = visible_date_range(
         first=snapshot.first, last=snapshot.last, window=window
     )
-    x = [d.isoformat() for d, _ in snapshot.daily]
-    y = [count for _, count in snapshot.daily]
-    trailing = [sum(y[max(0, i - 6) : i + 1]) / min(i + 1, 7) for i in range(len(y))]
+    begin, end = visible_first, visible_last
+    if focus_event is not None and focus_event["source"] == snapshot.source:
+        begin = max(snapshot.first, date.fromisoformat(focus_event["start"]) - timedelta(days=7))
+        end = min(snapshot.last, date.fromisoformat(focus_event["end"]) + timedelta(days=7))
+
+    # Include the entire calendar bucket that contains the selected boundary.
+    displayed_first = max(snapshot.first, bucket_start(begin, interval))
+    shown = [b for b in bins if b.last_observed >= begin and b.first_observed <= end]
+    displayed_last = max((b.last_observed for b in shown), default=end)
+    x = [b.center.isoformat() for b in bins]
+    y = [b.count for b in bins]
+    hover_periods = [[b.first_observed.isoformat(), b.last_observed.isoformat()] for b in bins]
+    unit = {"daily": "day", "weekly": "week", "monthly": "month", "yearly": "year"}[interval]
+    name = PAGE_CONFIG[snapshot.source][2].capitalize()
     fig = go.Figure()
-    fig.add_trace(
-        go.Scatter(
-            x=x,
-            y=y,
-            name="Daily count",
-            mode="lines",
-            line={"color": "#16718c", "width": 1.8},
-            hovertemplate="%{x}: %{y:,}<extra></extra>",
+    if plot_type == "bars":
+        fig.add_trace(
+            go.Bar(
+                x=x,
+                y=y,
+                width=[b.width_ms for b in bins],
+                name=f"{unit.title()} total",
+                marker={"color": "#16718c"},
+                customdata=hover_periods,
+                hovertemplate=(
+                    "%{customdata[0]} – %{customdata[1]} UTC" "<br>Total: %{y:,}<extra></extra>"
+                ),
+            )
         )
-    )
-    fig.add_trace(
-        go.Scatter(
-            x=x,
-            y=trailing,
-            name="7-day trailing average",
-            mode="lines",
-            line={"color": "#405b76", "width": 2, "dash": "dash"},
-            hovertemplate="%{x}: %{y:,.0f}<extra></extra>",
+    else:
+        fig.add_trace(
+            go.Scatter(
+                x=x,
+                y=y,
+                name=f"{unit.title()} total",
+                mode="lines" if interval == "daily" else "lines+markers",
+                line={"color": "#16718c", "width": 1.8},
+                marker={"size": 5},
+                customdata=hover_periods,
+                hovertemplate=(
+                    "%{customdata[0]} – %{customdata[1]} UTC" "<br>Total: %{y:,}<extra></extra>"
+                ),
+            )
         )
-    )
-    events, _statuses = visible_events()
-    for direction, color, title in (
-        ("spike", "#c53f42", "Unusual increase episode"),
-        ("drop", "#bc7919", "Unusual decrease episode"),
-    ):
-        selected = [
-            event
-            for event in events
-            if event["source"] == snapshot.source and event["direction"] == direction
-        ]
-        if selected:
-            row_by_date = dict(snapshot.daily)
+        if interval == "daily":
+            trailing = [sum(y[max(0, i - 6) : i + 1]) / min(i + 1, 7) for i in range(len(y))]
             fig.add_trace(
                 go.Scatter(
-                    x=[v["detected"] for v in selected],
-                    y=[row_by_date.get(date.fromisoformat(v["detected"]), 0) for v in selected],
-                    name=title,
-                    mode="markers",
-                    marker={"color": color, "symbol": "diamond", "size": 12},
-                    customdata=[[v["id"], v["start"], v["end"]] for v in selected],
-                    hovertemplate=(
-                        "%{x}: %{y:,}<br>Episode %{customdata[1]}–%{customdata[2]}"
-                        "<br>Click for details<extra></extra>"
-                    ),
+                    x=x,
+                    y=trailing,
+                    name="7-day trailing average",
+                    mode="lines",
+                    line={"color": "#405b76", "width": 2, "dash": "dash"},
+                    hovertemplate="%{x}: %{y:,.0f}<extra></extra>",
                 )
             )
+    if interval == "daily":
+        events, _statuses = visible_events()
+        row_by_date = dict(snapshot.daily)
+        for direction, color, title in (
+            ("spike", "#c53f42", "Unusual increase episode"),
+            ("drop", "#bc7919", "Unusual decrease episode"),
+        ):
+            selected = [
+                event
+                for event in events
+                if event["source"] == snapshot.source and event["direction"] == direction
+            ]
+            if selected:
+                fig.add_trace(
+                    go.Scatter(
+                        x=[v["detected"] for v in selected],
+                        y=[row_by_date.get(date.fromisoformat(v["detected"]), 0) for v in selected],
+                        name=title,
+                        mode="markers",
+                        marker={"color": color, "symbol": "diamond", "size": 12},
+                        customdata=[[v["id"], v["start"], v["end"]] for v in selected],
+                        hovertemplate=(
+                            "%{x}: %{y:,}<br>Episode %{customdata[1]}–%{customdata[2]}"
+                            "<br>Click for details<extra></extra>"
+                        ),
+                    )
+                )
+    max_in_view = max((b.count for b in shown), default=0)
+    if interval == "daily" and plot_type == "line":
+        trailing_in_view = [
+            value for (bucket, value) in zip(bins, trailing) if begin <= bucket.start <= end
+        ]
+        max_in_view = max(max_in_view, max(trailing_in_view, default=0))
     fig.update_layout(
         template="plotly_white",
         margin={"l": 40, "r": 18, "t": 35, "b": 40},
         xaxis={
             "type": "date",
-            "range": [visible_first.isoformat(), (visible_last + timedelta(days=1)).isoformat()],
+            "range": [
+                displayed_first.isoformat(),
+                (displayed_last + timedelta(days=1)).isoformat(),
+            ],
             "minallowed": snapshot.first.isoformat(),
             "maxallowed": (snapshot.last + timedelta(days=1)).isoformat(),
-            "rangeslider": {"visible": True, "thickness": 0.11},
+            "rangeslider": {"visible": True, "thickness": 0.11, "yaxis": {"rangemode": "auto"}},
         },
-        yaxis={"title": "Count / day", "rangemode": "tozero"},
-        dragmode="pan",
+        yaxis={
+            "title": f"{name} per {unit}",
+            "range": [0, max(1, max_in_view) * 1.15],
+            "rangemode": "tozero",
+        },
+        dragmode="zoom",
         hovermode="x unified",
         legend={"orientation": "h", "y": 1.12, "x": 0},
-        uirevision=f"{snapshot.source}-{window}",
+        uirevision=(
+            f"{snapshot.source}-{snapshot.last_modified.isoformat()}-{window}"
+            f"-{interval}-{plot_type}"
+            + (f"-focus-{focus_event['id']}" if focus_event is not None else "")
+        ),
     )
-    if focus_event is not None and focus_event["source"] == snapshot.source:
-        begin = max(snapshot.first, date.fromisoformat(focus_event["start"]) - timedelta(days=7))
-        end = min(snapshot.last, date.fromisoformat(focus_event["end"]) + timedelta(days=7))
-        fig.update_xaxes(range=[begin.isoformat(), (end + timedelta(days=1)).isoformat()])
-        visible_counts = [count for day, count in snapshot.daily if begin <= day <= end]
-        if visible_counts:
-            fig.update_yaxes(range=[0, max(1, max(visible_counts)) * 1.15])
-        fig.update_layout(uirevision=f"{snapshot.source}-focus-{focus_event['id']}")
     return fig
 
 
@@ -267,18 +361,29 @@ def register_history_callback(source: str):
         Output(f"{source}-graph", "figure"),
         Input(f"{source}-route", "search"),
         Input(f"{source}-window", "value"),
+        Input(f"{source}-interval", "value"),
+        Input(f"{source}-plot-type", "value"),
     )
-    def update(search, window):
+    def update(search, window, interval, plot_type):
         event_id = parse_qs((search or "").lstrip("?")).get("episode", [None])[0]
         route_changed = f"{source}-route.search" in ctx.triggered_prop_ids
-        window_changed = f"{source}-window.value" in ctx.triggered_prop_ids
+        controls_changed = any(
+            f"{source}-{field}.value" in ctx.triggered_prop_ids
+            for field in ("window", "interval", "plot-type")
+        )
         focus = (
             event_by_id(event_id, source=source)
-            if isinstance(event_id, str) and (route_changed or not window_changed)
+            if isinstance(event_id, str) and (route_changed or not controls_changed)
             else None
         )
         try:
-            return history_figure(load_snapshot(source), window=window, focus_event=focus)
+            return history_figure(
+                load_snapshot(source),
+                window=window,
+                focus_event=focus,
+                interval=interval,
+                plot_type=plot_type,
+            )
         except (OSError, ValueError, TypeError, KeyError, json.JSONDecodeError):
             fig = go.Figure()
             fig.add_annotation(text="Aggregate snapshot unavailable", showarrow=False)

@@ -107,3 +107,9 @@ h2 { font-size: 1.15rem; margin: .5rem 0 1.5rem; }
 .history-graph .js-plotly-plot.episode-marker-hover .draglayer rect.drag {
     cursor: pointer !important;
 }
+
+/* Compact daily/weekly/monthly/yearly and line/bar chart controls. */
+.history-radio-group { display: flex; flex-wrap: wrap; gap: .35rem .65rem; }
+.history-radio-group label { display: inline-flex; align-items: center; gap: .3rem;
+    cursor: pointer; font-size: .85rem; color: var(--ink); white-space: nowrap; }
+.history-radio-group input { accent-color: var(--accent); }

@@ -63,3 +63,22 @@ spikes do not count as cross-source corroboration.
 See [Anomaly detection and episode inspection](anomaly_detection.md) for the
 model, equations, past-only fitting protocol, thresholds, assumptions,
 interpretation, failure handling and implementation references.
+
+## Historical charts
+
+All chart styles read only the validated daily snapshots. The **Day / Week /
+Month / Year** controls sum daily counts into UTC calendar intervals (ISO weeks
+start Monday). The first and last bucket may represent only a partial calendar
+period; they are never extrapolated into a full interval. **Line / Bars** changes
+the rendering, not the totals. Seven-day trailing averages appear in daily line
+mode only. The KPI cards remain unchanged by the chart controls.
+
+Plotly starts in rectangular **Zoom** mode; **Pan** is available in the toolbar.
+The Y axis initially fits the selected time window, and browser-side Plotly
+listeners recompute it after horizontal panning or range-slider changes. A manual
+2D box zoom preserves the Y range selected by the user. This adjustment happens
+entirely in the browser, without reloading snapshots or running server callbacks.
+
+Anomaly detection remains daily. Its clickable episode diamonds appear on daily
+charts (line or bars), rather than being assigned potentially misleading
+weekly/monthly/yearly detection dates.

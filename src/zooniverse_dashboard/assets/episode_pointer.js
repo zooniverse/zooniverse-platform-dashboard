@@ -37,13 +37,16 @@
         const data = plot.data;
         if (!Array.isArray(data)) return false;
         const traces = plot.querySelectorAll(".scatterlayer .trace");
+        let scatterIndex = 0;
         for (let i = 0; i < data.length; i += 1) {
-            const metadata = data[i] && data[i].customdata;
+            if (!data[i] || (data[i].type && data[i].type !== "scatter")) continue;
+            const traceIndex = scatterIndex++;
+            const metadata = data[i].customdata;
             if (!Array.isArray(metadata) || !metadata.length) continue;
             if (!Array.isArray(metadata[0]) || !EPISODE_ID.test(metadata[0][0])) continue;
 
-            // Both daily-count traces come before these marker-only traces.
-            const markers = traces[i] && traces[i].querySelectorAll("path.point");
+            // Bar traces have separate SVG layers, so count only scatter traces.
+            const markers = traces[traceIndex] && traces[traceIndex].querySelectorAll("path.point");
             if (!markers) continue;
             for (let j = 0; j < markers.length; j += 1) {
                 if (!Array.isArray(metadata[j]) || !EPISODE_ID.test(metadata[j][0])) continue;
