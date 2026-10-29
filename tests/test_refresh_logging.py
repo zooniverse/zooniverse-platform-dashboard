@@ -70,6 +70,7 @@ def test_successful_refresh_logs_progress_and_timing(monkeypatch, tmp_path, logg
         )
 
     monkeypatch.setattr(refresh, "refresh_source", fake_source)
+    monkeypatch.setattr(refresh, "refresh_launches", lambda **kwargs: None)
     status = refresh.refresh_all(root=tmp_path, now=STAMP)
     events = logged_events.getvalue()
     assert status["state"] == "ok"
@@ -78,7 +79,7 @@ def test_successful_refresh_logs_progress_and_timing(monkeypatch, tmp_path, logg
     assert "event=source_succeeded" in events
     assert "event=refresh_finished" in events
     assert "elapsed_ms=" in events
-    assert "succeeded=3 failed=0" in events
+    assert "succeeded=4 failed=0" in events
 
 
 def test_fetch_logs_bucket_total_and_published_snapshot(monkeypatch, tmp_path, logged_events):

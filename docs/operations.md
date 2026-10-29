@@ -3,7 +3,9 @@
 This internal dashboard uses **manual, complete-window refreshes**. There is
 no cron job and no incremental/backfill logic. Each refresh queries Panoptes
 and both ERAS endpoints for the *entire configured history window* and
-atomically replaces each validated daily-count JSON file. Dash pages read only
+atomically replaces each validated daily-count JSON file. A fourth independent
+stage fetches approved Panoptes project launches as sparse per-day aggregates
+into `project_launches.json`. Dash pages read only
 the published JSON files, never production sources.
 
 ## Configured history window
@@ -22,7 +24,8 @@ Set `ANALYTICS_HISTORY_DAYS` in the environment (or `.env`) to select the
 Only nonnegative integers up to the snapshot storage bound are accepted;
 invalid values cause an explicit error and **never** silently trigger an
 all-history fetch. The setting applies identically to Users, Classifications,
-and Talk; the actual first available date may differ between sources in
+and Talk, as well as the independent project-launch overlay; the actual first
+available date may differ between sources in
 all-time mode.
 
 ### Set the limit without rebuilding the container
@@ -33,7 +36,7 @@ In the installed environment:
 set-date-limit             # display effective setting
 set-date-limit 365         # store a 365-day limit
 set-date-limit 0           # remove the date restriction: all available history
-refresh-data               # refresh all three sources (no arguments)
+refresh-data               # refresh all 3 activity sources + project launches
 ```
 
 In Docker:
@@ -69,6 +72,12 @@ cooldown if necessary.
   per source. For `0`, the request omits `start_date`; for a bounded window it
   includes both `start_date` and `end_date`. Totals, bucket dates, response
   size and date spans are validated. No user-level data is requested.
+- `project_launches`: fixed SQL on `public.projects.launch_date`, restricted to
+  `launch_approved IS TRUE`, returning nonzero UTC daily counts and up to 160
+  characters of each currently non-private public project title. Private
+  titles, IDs, owners and individual timestamps are excluded. An empty bounded
+  history window is valid. See
+  [Project launch markers](project_launch_markers.md).
 - Snapshots are published atomically and independently on the mounted volume.
   A failed source leaves its previous JSON intact; the generic status file
   shows partial failure without exposing credentials or raw server errors.
@@ -134,6 +143,9 @@ A second click during the one-hour cooldown logs `refresh_rejected`. Failed
 sources retain their previous valid JSON; an attempt with partial failures logs
 `state=partial_failure` and `refresh-data` returns exit status 1. A rejected
 CLI attempt returns exit status 2. Successful CLI runs return exit status 0.
+`refresh_status.json` includes a fourth `project_launches` stage. Old
+three-stage files are still accepted, and a failure in project collection
+preserves the previous valid launch JSON without discarding activity data.
 The existing `refresh_status.json` records the collection stage and is updated
 **after each individual source**. The separate `refresh_job.json` reports the
 end-to-end worker state and progress, including anomaly rebuilding. Neither is
@@ -142,7 +154,8 @@ an exhaustive audit log; keep the worker log on private storage.
 ## One-click refresh and anomaly rebuild
 
 Click **Refresh data** to run the same pipeline as `refresh-data`: refresh all
-three aggregate sources, then rebuild the local anomaly catalog. The web
+three activity aggregate sources plus the independent project-launch overlay,
+then rebuild the local anomaly catalog. The web
 request schedules a **detached Python subprocess**. Dash polls its small,
 atomically published `refresh_job.json` every second **only while a job is
 queued or running**, to render the step-by-step progress panel. Fast polling

@@ -136,9 +136,17 @@ def test_all_streams_status_and_cooldown(monkeypatch, tmp_path):
 
     set_history_days(365, root=tmp_path)
     monkeypatch.setattr(refresh, "refresh_source", fake_source)
+    launch_calls = []
+    monkeypatch.setattr(
+        refresh,
+        "refresh_launches",
+        lambda **kw: launch_calls.append((kw["through"], kw["history_days"])),
+    )
     status = refresh.refresh_all(root=tmp_path, now=NOW)
     assert status["state"] == "ok"
     assert calls == [(source, 365) for source in ("users", "classifications", "talks")]
+    assert launch_calls == [(THROUGH, 365)]
+    assert status["streams"]["project_launches"] == "ok"
     with pytest.raises(refresh.RefreshRejected, match="last hour"):
         refresh.refresh_all(root=tmp_path, now=NOW + timedelta(minutes=5))
 
@@ -149,5 +157,6 @@ def test_failed_source_is_sanitized(monkeypatch, tmp_path):
             raise ValueError("secret://credentials@example.com")
 
     monkeypatch.setattr(refresh, "refresh_source", failing)
+    monkeypatch.setattr(refresh, "refresh_launches", lambda **kw: None)
     status = refresh.refresh_all(root=tmp_path, now=NOW)
     assert status["state"] == "partial_failure"

@@ -142,11 +142,13 @@ def test_source_status_is_durable_after_each_source(monkeypatch, tmp_path):
             raise RuntimeError("secret password hidden")
 
     monkeypatch.setattr(refresh, "refresh_source", fake_source)
+    monkeypatch.setattr(refresh, "refresh_launches", lambda **kwargs: None)
     result = refresh.refresh_all(root=tmp_path)
     assert stamps[0][1] == {
         "users": "pending",
         "classifications": "pending",
         "talks": "pending",
+        "project_launches": "pending",
     }
     assert stamps[1][1]["users"] == "ok"
     assert stamps[2][1]["classifications"] == "ok"
@@ -154,5 +156,6 @@ def test_source_status_is_durable_after_each_source(monkeypatch, tmp_path):
         "users": "ok",
         "classifications": "ok",
         "talks": "failed",
+        "project_launches": "ok",
     }
     assert result["state"] == "partial_failure"

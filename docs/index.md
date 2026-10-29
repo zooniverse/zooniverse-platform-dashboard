@@ -65,6 +65,7 @@ installation
 command_line
 architecture
 anomaly_detection
+project_launch_markers
 operations
 privacy
 publishing

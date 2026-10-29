@@ -23,12 +23,15 @@ from zooniverse_dashboard.eras import (
     fetch_window_comments,
 )
 from zooniverse_dashboard.logging_utils import safe_error_trace
+from zooniverse_dashboard.project_launches import fetch_project_launches, publish_launches
 from zooniverse_dashboard.snapshots import MAX_DAYS, SOURCES, _atomic_publish, publish_snapshot
 from zooniverse_dashboard.sources import fetch_panoptes
 
 STATUS_FORMAT = "ZOONIVERSE_REFRESH_STATUS_V1"
 COOLDOWN_MINUTES = 60
 LOG = logging.getLogger("zooniverse_dashboard.refresh")
+LAUNCH_STREAM = "project_launches"
+REFRESH_STREAMS = (*SOURCES, LAUNCH_STREAM)
 
 
 class RefreshRejected(ValueError):
@@ -68,7 +71,7 @@ def load_status(root: Path | None = None) -> dict | None:
         or doc["format"] != STATUS_FORMAT
         or doc["state"] not in {"running", "ok", "partial_failure"}
         or not isinstance(doc["streams"], dict)
-        or set(doc["streams"]) != set(SOURCES)
+        or set(doc["streams"]) not in (set(SOURCES), set(REFRESH_STREAMS))
         or any(value not in {"pending", "ok", "failed"} for value in doc["streams"].values())
     ):
         raise ValueError("Invalid refresh status")
@@ -183,6 +186,56 @@ def refresh_source(
         raise
 
 
+def refresh_launches(
+    *,
+    through: date,
+    root: Path | None = None,
+    now: datetime | None = None,
+    history_days: int = 0,
+):
+    """Collect and atomically publish project-launch context, independently."""
+    started = time.perf_counter()
+    phase = "fetch_and_validate"
+    try:
+        launch_data = fetch_project_launches(through=through, history_days=history_days)
+        LOG.info(
+            "event=source_fetch_completed source=%s buckets=%d aggregate_total=%d elapsed_ms=%.1f",
+            LAUNCH_STREAM,
+            len(launch_data.counts),
+            sum(launch_data.counts.values()),
+            (time.perf_counter() - started) * 1000,
+        )
+        phase = "snapshot_publication"
+        result = publish_launches(
+            launch_data.counts,
+            names=launch_data.names,
+            through=through,
+            history_days=history_days,
+            root=root,
+            now=now,
+        )
+        LOG.info(
+            "event=snapshot_published source=%s first=%s last=%s "
+            "last_modified_utc=%s elapsed_ms=%.1f",
+            LAUNCH_STREAM,
+            result.first.isoformat(),
+            result.last.isoformat(),
+            result.last_modified.isoformat(),
+            (time.perf_counter() - started) * 1000,
+        )
+        return result
+    except Exception as exc:
+        LOG.error(
+            "event=source_failed source=%s phase=%s error_type=%s trace=%s elapsed_ms=%.1f",
+            LAUNCH_STREAM,
+            phase,
+            type(exc).__name__,
+            safe_error_trace(exc),
+            (time.perf_counter() - started) * 1000,
+        )
+        raise
+
+
 def refresh_all(*, root: Path | None = None, now: datetime | None = None, progress=None) -> dict:
     """Synchronous, serialized on-demand refresh; no scheduler is started."""
     started = time.perf_counter()
@@ -207,25 +260,28 @@ def refresh_all(*, root: Path | None = None, now: datetime | None = None, progre
                 run_id,
                 through.isoformat(),
                 days,
-                len(SOURCES),
+                len(REFRESH_STREAMS),
             )
             status = {
                 "format": STATUS_FORMAT,
                 "started_at_utc": stamp.isoformat(),
                 "finished_at_utc": None,
                 "state": "running",
-                "streams": {name: "pending" for name in SOURCES},
+                "streams": {name: "pending" for name in REFRESH_STREAMS},
             }
             _write_status(folder, status)
             if progress is not None:
                 progress("Retrieving validated daily aggregates...")
-            for source in SOURCES:
+            for source in REFRESH_STREAMS:
                 source_started = time.perf_counter()
                 LOG.info("event=source_started run=%s source=%s", run_id, source)
                 if progress is not None:
                     progress(f"Fetching {source} aggregates...")
                 try:
-                    refresh_source(source, through=through, root=folder, history_days=days)
+                    if source == LAUNCH_STREAM:
+                        refresh_launches(through=through, root=folder, history_days=days, now=stamp)
+                    else:
+                        refresh_source(source, through=through, root=folder, history_days=days)
                     status["streams"][source] = "ok"
                     _write_status(folder, status)
                     if progress is not None:

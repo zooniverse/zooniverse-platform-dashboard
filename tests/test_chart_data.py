@@ -121,3 +121,79 @@ def test_daily_bar_keeps_clickable_episode_markers(monkeypatch):
     assert daily.data[1].customdata[0][0] == event["id"]
     monthly = ui.history_figure(snapshot, plot_type="bars", interval="monthly")
     assert len(monthly.data) == 1  # Do not move daily detection dates to month bins.
+
+
+def test_grouped_bars_are_equal_slots_and_keep_partial_calendar_widths(monkeypatch):
+    pytest.importorskip("dash")
+    from zooniverse_dashboard import ui
+
+    monkeypatch.setattr(ui, "visible_events", lambda: ([], {}))
+    # Jan 30–Feb 4 is a partial January and a partial (leap) February.
+    rows = _rows(date(2024, 1, 30), [1] * 6)
+    snapshot = Snapshot(
+        "users",
+        rows[0][0],
+        rows[-1][0],
+        rows[-1][0] + timedelta(days=1),
+        datetime(2024, 2, 6, tzinfo=timezone.utc),
+        rows,
+        True,
+        0,
+    )
+    monthly = ui.history_figure(snapshot, interval="monthly", plot_type="bars")
+    assert monthly.layout.xaxis.type == "linear"
+    assert monthly.layout.xaxis.range == (-0.5, 1.5)
+    assert monthly.layout.meta["period_labels"] == ["Jan 2024", "Feb 2024"]
+    assert monthly.data[0].y == (2, 4)
+    assert monthly.data[0].width[0] == pytest.approx(0.82 * 2 / 31)
+    assert monthly.data[0].width[1] == pytest.approx(0.82 * 4 / 29)
+    assert monthly.data[0].x[0] > 0  # Partial late January sits on right edge.
+    assert monthly.data[0].x[1] < 1  # Partial early February sits on left edge.
+    assert monthly.layout.xaxis.rangeslider.visible
+    assert monthly.layout.yaxis.range[1] > 4
+    full = _rows(date(2024, 1, 1), [1] * 60)
+    fully_covered = Snapshot(
+        "users",
+        full[0][0],
+        full[-1][0],
+        full[-1][0] + timedelta(days=1),
+        datetime(2024, 3, 2, tzinfo=timezone.utc),
+        full,
+        True,
+        0,
+    )
+    fig = ui.history_figure(fully_covered, interval="monthly", plot_type="bars")
+    assert fig.data[0].x == (0, 1)
+    assert fig.data[0].width == pytest.approx((0.82, 0.82))
+    assert fig.data[0].customdata[1][0] == "Thu 01 Feb 2024"
+
+
+def test_week_and_year_bar_labels_and_line_axis_remain_distinct(monkeypatch):
+    pytest.importorskip("dash")
+    from zooniverse_dashboard import ui
+
+    monkeypatch.setattr(ui, "visible_events", lambda: ([], {}))
+    rows = _rows(date(2025, 12, 29), [5] * 42)
+    snapshot = Snapshot(
+        "users",
+        rows[0][0],
+        rows[-1][0],
+        rows[-1][0] + timedelta(days=1),
+        datetime(2026, 2, 11, tzinfo=timezone.utc),
+        rows,
+        True,
+        0,
+    )
+    weekly = ui.history_figure(snapshot, interval="weekly", plot_type="bars")
+    assert weekly.layout.meta["period_labels"][0] == "29 Dec '25"
+    assert weekly.layout.meta["period_labels"][1] == "05 Jan '26"
+    assert weekly.data[0].x == tuple(range(6))
+    assert all(width == pytest.approx(0.82) for width in weekly.data[0].width)
+    yearly = ui.history_figure(snapshot, interval="yearly", plot_type="bars")
+    assert yearly.layout.meta["period_labels"] == ["2025", "2026"]
+    assert yearly.data[0].x[0] > 0  # Only final three days of 2025 observed.
+    assert yearly.data[0].x[1] < 1  # Early 2026 is partial.
+    line = ui.history_figure(snapshot, interval="weekly", plot_type="line")
+    assert line.layout.xaxis.type == "date"
+    assert line.layout.meta is None
+    assert line.data[0].x[0] == "2026-01-01"
