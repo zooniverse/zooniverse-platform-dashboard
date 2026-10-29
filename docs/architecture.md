@@ -1,6 +1,6 @@
 # Architecture
 
-Three activity sources plus an independent project-launch overlay, one Dash
+Three activity sources plus one project-launch snapshot, one Dash
 application, one persistent POSIX Docker volume:
 
 ```
@@ -14,7 +14,7 @@ Read-only Panoptes PostgreSQL    Public ERAS counts
        atomic JSON in mounted /data
                    |
               Dash pages
-     users / classifications / talks
+     users / classifications / talks / projects
 ```
 
 The web button starts a detached refresh worker; that worker is the **only**
@@ -32,8 +32,8 @@ The timestamp is generated at successful publication time on every refresh, even
 An independent `project_launches.json` stores sparse, validated daily counts
 and available non-private public titles for approved Panoptes launches. It is
 collected in a fourth refresh stage, atomically published and plotted as dated
-markers on all three activity charts without entering the anomaly detector or
-affecting activity totals. V1 count-only snapshots remain readable; missing
+markers on all three activity charts and is also summarized on
+the **Projects** page without entering the anomaly detector or affecting activity totals. V1 count-only snapshots remain readable; missing
 overlays cannot prevent normal graphs from rendering. See
 [Project launch markers](project_launch_markers.md).
 
@@ -110,7 +110,7 @@ boundaries as Plotly layout metadata. When the user changes Day/Week/Month/Year
 or Line/Bars, the new figure restores the same dates: numeric grouped-bar
 positions are converted via their actual period boundaries (including leap
 years and partial periods). The same stored dates are restored on Users,
-Classifications and Talk, including after normal page navigation or reload.
+Classifications, Talk and Projects, including after normal page navigation or reload.
 A source with shorter coverage clips the *displayed* range without changing
 what is stored, and Y scaling remains specific to each chart. Explicitly
 changing **Visible time window** clears the shared manual zoom; Plotly's
@@ -127,3 +127,11 @@ still shows its exact UTC date and public project names on hover. Compact
 violet triangles sit at Y=0 on every chart, drawn in front of the teal bars
 without white outlines to avoid merged blobs when launches cluster. Neither
 interpretation changes launch counts, rolling averages, or anomaly detection.
+
+The **Projects** page uses `project_launches.json` directly to assemble a dense
+series of **calendar months or years**, including zero-launch periods between
+the snapshot boundaries. No daily project rows or second Panoptes query are
+needed. The resulting bar/line charts share the browser-tab UTC viewport with
+the activity charts using the same Plotly `history_zoom` metadata. The first
+and last calendar periods retain their actual, potentially incomplete coverage.
+See [Projects](projects.md).

@@ -134,6 +134,10 @@ activity totals, rolling averages, anomaly analysis, or clickable anomaly
 diamonds. Launch markers are clipped independently to each activity snapshot;
 invalid or unavailable launch overlays simply result in no launch markers.
 
+The **Projects** navigation page visualizes launch *counts per month/year*
+from this exact same file, with zeros inserted only for fully covered dates
+without launches. See [Projects](projects.md).
+
 ## Verification
 
 Run the existing Python tests (including `tests/test_project_launches.py`).

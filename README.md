@@ -1,8 +1,9 @@
 # Zooniverse Platform Dashboard
 
 An internal, aggregate-only dashboard for understanding Zooniverse platform activity:
-**registrations**, **classifications**, and **Talk comments**. Each metric has UTC
-calendar summaries and an interactive daily history. A separate **Anomalies** page
+**registrations**, **classifications**, and **Talk comments**, alongside approved
+**project launches**. Activity metrics have UTC calendar summaries and interactive
+histories; Projects tracks launch counts per month and year. A separate **Anomalies** page
 provides statistical episode summaries and links back to the relevant charts.
 
 The dashboard reads validated daily-count JSON snapshots; it does not display
@@ -19,6 +20,8 @@ architecture, limitations, and navigation to the full guides:
   environment, read-only Panoptes connection, ERAS access, and first run.
 - [Command-line reference](docs/command_line.md) — `refresh-data`,
   `set-date-limit`, and `rebuild-anomalies`.
+- [Projects page](docs/projects.md) — approved launch rates by month/year,
+  snapshot coverage, and shared chart zoom.
 - [Anomaly detector](docs/anomaly_detection.md) — model assumptions,
   thresholds, calibration, and episode interpretation.
 - [Operations](docs/operations.md) and [privacy](docs/privacy.md).

@@ -4,9 +4,10 @@
 
 The Zooniverse Platform Dashboard is an internal, lightweight application for
 exploring platform-wide activity over time. It brings together three daily
-aggregate series: new user registrations from Panoptes, classification activity
-from the public ERAS service, and Talk comments from ERAS. They describe
-*different kinds of activity*, not interchangeable counts of active people.
+aggregate activity series: new user registrations from Panoptes, classification activity
+from the public ERAS service, and Talk comments from ERAS. A separate Projects page summarizes approved Panoptes project launches by
+month and year. These series describe *different kinds of activity*, not
+interchangeable counts of active people.
 
 The immediate goal is practical visibility. Staff should be able to answer
 questions such as: How many registrations happened yesterday? Has classification
@@ -18,6 +19,9 @@ activity? And what do the data actually support when a day looks unusual?
 - **Users, Classifications, and Talk pages:** seven UTC-calendar KPI periods
   (yesterday; current/previous week, month, and year), a pannable history
   chart, and a seven-day moving average.
+- **Projects page:** approved project launches by month or year, including
+  zero-launch periods, current/previous calendar summaries, and shared UTC
+  chart zoom. It reads the existing project-launch snapshot, not a new query.
 - **Anomalies page:** a compact list of statistically unusual *episodes*,
   including the source, duration, observed versus expected activity, and
   evidence from the detector. Chart markers and episode cards link to one
@@ -66,6 +70,7 @@ command_line
 architecture
 anomaly_detection
 project_launch_markers
+projects
 operations
 privacy
 publishing

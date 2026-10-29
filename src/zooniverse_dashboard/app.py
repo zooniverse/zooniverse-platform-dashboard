@@ -162,8 +162,8 @@ def create_app() -> Dash:
                     hidden,
                     False,
                     {"reload": True, "run_id": run_id},
-                    "Data refreshed successfully — Users, Classifications, Talk, and "
-                    "anomaly analysis are up to date.",
+                    "Data refreshed successfully — Users, Classifications, Talk, "
+                    "project launches, and anomaly analysis are up to date.",
                     {"display": "block"},
                     True,
                 )

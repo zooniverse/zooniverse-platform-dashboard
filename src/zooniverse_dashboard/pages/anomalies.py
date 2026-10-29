@@ -8,7 +8,7 @@ from dash import Input, Output, callback, dcc, html, register_page
 
 from zooniverse_dashboard.anomalies.catalog import ID_PATTERN, visible_events
 
-register_page(__name__, path="/anomalies", name="Anomalies", order=4)
+register_page(__name__, path="/anomalies", name="Anomalies", order=5)
 
 LABELS = {
     "users": "User registrations",
