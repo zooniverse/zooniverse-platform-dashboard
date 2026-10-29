@@ -195,5 +195,45 @@ def test_week_and_year_bar_labels_and_line_axis_remain_distinct(monkeypatch):
     assert yearly.data[0].x[1] < 1  # Early 2026 is partial.
     line = ui.history_figure(snapshot, interval="weekly", plot_type="line")
     assert line.layout.xaxis.type == "date"
-    assert line.layout.meta is None
+    assert line.layout.meta["history_zoom"]["period_bounds"] is None
     assert line.data[0].x[0] == "2026-01-01"
+
+
+def test_zoom_metadata_tracks_calendar_boundaries_and_page_source(monkeypatch):
+    pytest.importorskip("dash")
+    from zooniverse_dashboard import ui
+
+    monkeypatch.setattr(ui, "visible_events", lambda: ([], {}))
+    for source in ("users", "classifications", "talks"):
+        rows = _rows(date(2024, 1, 30), [3] * 40)
+        snapshot = Snapshot(
+            source,
+            rows[0][0],
+            rows[-1][0],
+            rows[-1][0] + timedelta(days=1),
+            datetime(2024, 3, 11, tzinfo=timezone.utc),
+            rows,
+            True,
+            0,
+        )
+        monthly = ui.history_figure(snapshot, interval="monthly", plot_type="bars")
+        meta = monthly.layout.meta["history_zoom"]
+        assert meta["source"] == source
+        assert meta["period_bounds"] == [
+            "2024-01-01",
+            "2024-02-01",
+            "2024-03-01",
+            "2024-04-01",
+        ]
+        assert meta["first"] == "2024-01-30"
+        assert meta["last_exclusive"] == "2024-03-10"
+        assert meta["focused"] is False
+        assert meta["revision"]
+        line = ui.history_figure(snapshot, interval="monthly", plot_type="line")
+        assert line.layout.meta["history_zoom"]["period_bounds"] is None
+        assert line.layout.meta["history_zoom"]["revision"] != meta["revision"]
+        focused = ui.history_figure(
+            snapshot,
+            focus_event={"id": "e", "source": source, "start": "2024-02-10", "end": "2024-02-12"},
+        )
+        assert focused.layout.meta["history_zoom"]["focused"] is True

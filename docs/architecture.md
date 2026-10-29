@@ -101,6 +101,25 @@ corresponding fraction of their slots, so they are not drawn as full periods.
 The range slider and Plotly pan/zoom continue to work; the browser chooses
 period-label density for the visible range rather than printing daily ticks.
 
+**Shared chart viewport:** Browser-side `assets/history_zoom.js` listens for
+horizontal Plotly relayout events (rectangle zoom, pan and range slider),
+converts the X range into an **absolute UTC timestamp interval**, and stores
+only those two timestamps in the current browser tab's `sessionStorage`.
+Each figure publishes its source, coverage, window preset and calendar bucket
+boundaries as Plotly layout metadata. When the user changes Day/Week/Month/Year
+or Line/Bars, the new figure restores the same dates: numeric grouped-bar
+positions are converted via their actual period boundaries (including leap
+years and partial periods). The same stored dates are restored on Users,
+Classifications and Talk, including after normal page navigation or reload.
+A source with shorter coverage clips the *displayed* range without changing
+what is stored, and Y scaling remains specific to each chart. Explicitly
+changing **Visible time window** clears the shared manual zoom; Plotly's
+**Reset axes** also clears it. An anomaly's **Show on graph** deep link takes
+precedence and adopts that episode's view as the new shared range. When
+session storage is unavailable, charts retain their original independent
+behavior. No remote queries or new snapshot fields are required, and only
+two dates (never per-user or project data) are persisted in the browser.
+
 The project-launch overlay uses true daily dates on line charts. On grouped
 bar charts, a launch is placed at its proportional calendar-day position
 *inside* the corresponding bucket (not shifted to its start or center), and

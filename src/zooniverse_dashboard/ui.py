@@ -212,7 +212,9 @@ def layout_for(source: str):
                         "Violet triangles along the baseline mark approved Panoptes project "
                         "launches on their recorded dates (hover for UTC dates and public titles). "
                         "On grouped bar charts, equal-width bars represent calendar periods "
-                        "and launch positions indicate the day within each period. ",
+                        "and launch positions indicate the day within each period. "
+                        "The selected date range is shared across charts in this browser tab; "
+                        "changing the Visible time window preset resets it.",
                         className="muted",
                     ),
                 ],
@@ -504,11 +506,34 @@ def history_figure(
             "maxallowed": (snapshot.last + timedelta(days=1)).isoformat(),
             "rangeslider": {"visible": True, "thickness": 0.11, "yaxis": {"rangemode": "auto"}},
         }
+    # Store UTC period boundaries for browser-side zoom translation. Grouped
+    # bars use numeric slots, but the shared viewport is always absolute time.
+    # Only calendar metadata is exposed; no additional source records are read.
+    zoom_meta = {
+        "source": snapshot.source,
+        "window": window,
+        "interval": interval,
+        "plot_type": plot_type,
+        "first": snapshot.first.isoformat(),
+        "last_exclusive": (snapshot.last + timedelta(days=1)).isoformat(),
+        "focused": focus_event is not None,
+        "revision": (
+            f"{snapshot.source}:{snapshot.last_modified.isoformat()}:"
+            f"{window}:{interval}:{plot_type}:"
+            f"{focus_event['id'] if focus_event is not None else ''}"
+        ),
+        "period_bounds": (
+            [bucket.start.isoformat() for bucket in bins]
+            + [_next_bucket_start(bins[-1].start, interval).isoformat()]
+            if indexed_bars and bins
+            else None
+        ),
+    }
     fig.update_layout(
         template="plotly_white",
         margin={"l": 40, "r": 18, "t": 35, "b": 40},
         xaxis=xaxis,
-        meta={"period_labels": labels} if indexed_bars else None,
+        meta={"history_zoom": zoom_meta, **({"period_labels": labels} if indexed_bars else {})},
         yaxis={
             "title": f"{name} per {unit}",
             "range": [0, max(1, max_in_view) * 1.15],
