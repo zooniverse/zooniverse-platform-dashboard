@@ -1,14 +1,43 @@
-"""Reusable Dash presentation of daily counts; no network or database access."""
+"""Render activity histories and register the three snapshot-backed chart pages.
+
+Users, Classifications, and Talk share this presentation layer. Layouts read
+validated local aggregate snapshots and create daily/weekly/monthly/yearly
+Plotly figures. Daily views optionally show anomaly diamonds; all intervals
+show approved project launches as violet baseline markers when a launch
+snapshot is available. Public project names are escaped before appearing in
+Plotly hover HTML.
+
+Grouped **bar** charts use numeric, equally spaced calendar slots instead of
+a continuous date axis. Their period boundaries are embedded as UTC dates in
+``layout.meta.history_zoom`` so the browser-side ``history_zoom.js`` asset
+can retain an absolute time window across binning, chart types, and pages.
+Line charts and daily bars retain a true UTC date axis. Figure construction
+performs no Panoptes or ERAS requests; missing or invalid snapshots produce
+an explanatory placeholder instead of failing page navigation.
+
+See Also
+--------
+:class:`zooniverse_dashboard.snapshots.Snapshot`
+    Validated continuous daily activity history.
+:class:`zooniverse_dashboard.project_launches.LaunchSnapshot`
+    Optional sparse project-launch overlay.
+:func:`zooniverse_dashboard.chart_data.group_daily`
+    Calendar-bucket aggregation for activity counts.
+:func:`zooniverse_dashboard.projects_ui.projects_figure`
+    Dedicated monthly/yearly projects chart.
+"""
 
 from __future__ import annotations
 
 import json
 from datetime import date, datetime, timedelta, timezone
 from html import escape
+from typing import Any, Callable
 from urllib.parse import parse_qs, urlencode
 
 import plotly.graph_objects as go
 from dash import Input, Output, callback, ctx, dcc, html, no_update
+from dash.development.base_component import Component
 
 from zooniverse_dashboard.anomalies.catalog import event_by_id, visible_events
 from zooniverse_dashboard.chart_data import ChartBucket, bucket_start, group_daily
@@ -17,17 +46,17 @@ from zooniverse_dashboard.periods import calendar_periods, visible_date_range
 from zooniverse_dashboard.project_launches import LaunchSnapshot, load_launches
 from zooniverse_dashboard.snapshots import Snapshot, load_snapshot
 
-WINDOW_OPTIONS = [
+WINDOW_OPTIONS: list[dict[str, str]] = [
     {"label": f"Last {days} days", "value": str(days)} for days in (7, 28, 90, 180, 365)
 ] + [{"label": "All available", "value": "all"}]
 
-PAGE_CONFIG = {
+PAGE_CONFIG: dict[str, tuple[str, str, str, str]] = {
     "users": ("User registrations", "Registration history", "registrations", "Panoptes"),
     "classifications": ("Classifications", "Classification history", "classifications", "ERAS"),
     "talks": ("Talk activity", "Talk comment history", "comments", "ERAS"),
 }
 
-INTERVAL_OPTIONS = [
+INTERVAL_OPTIONS: list[dict[str, str]] = [
     {"label": label, "value": value}
     for value, label in (
         ("daily", "Day"),
@@ -36,14 +65,40 @@ INTERVAL_OPTIONS = [
         ("yearly", "Year"),
     )
 ]
-PLOT_OPTIONS = [
+PLOT_OPTIONS: list[dict[str, str]] = [
     {"label": "Line", "value": "line"},
     {"label": "Bars", "value": "bars"},
 ]
 
 
-def layout_for(source: str):
-    """A fully snapshot-driven page, with no remote calls on navigation."""
+def layout_for(source: str) -> Component:
+    """Build a snapshot-driven activity page for one supported metric.
+
+    Render summary cards, freshness warnings, and chart controls. A missing or
+    invalid snapshot produces a message directing the operator to refresh data;
+    otherwise no network requests occur during page construction. The chart's
+    callbacks are registered separately by :func:`register_history_callback`.
+
+    Parameters
+    ----------
+    source : str
+        One of ``users``, ``classifications`` or ``talks`` in ``PAGE_CONFIG``.
+
+    Returns
+    -------
+    dash.development.base_component.Component
+        Dash page layout including summary cards or a missing-snapshot notice.
+
+    Raises
+    ------
+    KeyError
+        If ``source`` is not a registered activity page.
+
+    See Also
+    --------
+    :func:`zooniverse_dashboard.snapshots.load_snapshot`
+        Validate and load a saved activity history.
+    """
     title, chart_title, noun, provider = PAGE_CONFIG[source]
     try:
         snapshot = load_snapshot(source)
@@ -65,7 +120,7 @@ def layout_for(source: str):
         configured_days = None
     now = datetime.now(timezone.utc)
     stale_days = max(0, (now.date() - snapshot.as_of).days)
-    cards = []
+    cards: list[Component] = []
     for period in calendar_periods(snapshot):
         range_label = (
             f"{period.start.isoformat()} – {period.end.isoformat()} UTC"
@@ -225,12 +280,50 @@ def layout_for(source: str):
 
 
 def _display_date(day: date) -> str:
-    """Consistent UTC hover dates across calendar intervals and overlays."""
+    """Format a calendar day consistently in plot hover text.
+
+    Parameters
+    ----------
+    day : datetime.date
+        Calendar day already interpreted as UTC by the caller.
+
+    Returns
+    -------
+    str
+        English abbreviated weekday, day, month and year, such as
+        ``Mon 25 May 2026``.
+    """
     return day.strftime("%a %d %b %Y")
 
 
 def _launch_hover(day: date, count: int, names: tuple[str, ...]) -> str:
-    """Escape untrusted project titles before inserting them into Plotly HTML."""
+    """Build HTML-safe hover text for one day's recorded project launches.
+
+    Only up to eight available public titles are displayed. Remaining public
+    titles are counted, and a notice is appended if the total project count is
+    larger than the available public-title count. Titles are HTML-escaped to
+    avoid interpreting upstream project names as Plotly markup.
+
+    Parameters
+    ----------
+    day : datetime.date
+        Recorded UTC launch date.
+    count : int
+        Number of approved launches recorded on that date, including projects
+        without public names.
+    names : tuple[str, ...]
+        Public project display names from the saved launch snapshot.
+
+    Returns
+    -------
+    str
+        HTML-escaped tooltip body suitable for Plotly ``customdata``.
+
+    See Also
+    --------
+    :class:`zooniverse_dashboard.project_launches.LaunchSnapshot`
+        Snapshot supplying counts and optional public titles.
+    """
     label = f"{count} project{'s' if count != 1 else ''} launched"
     titles = "".join(f"<br>• {escape(name, quote=True)}" for name in names[:8])
     if len(names) > 8:
@@ -240,11 +333,29 @@ def _launch_hover(day: date, count: int, names: tuple[str, ...]) -> str:
     return f"{_display_date(day)} UTC<br>{label}{titles}"
 
 
-_PERIOD_BAR_WIDTH = 0.82
+_PERIOD_BAR_WIDTH: float = 0.82
 
 
 def _next_bucket_start(start: date, interval: str) -> date:
-    """Return the exclusive calendar end of a grouped bucket (not its observed end)."""
+    """Compute the exclusive end of a complete calendar bucket.
+
+    Parameters
+    ----------
+    start : datetime.date
+        First date of the bucket (Monday, first of month, or first of year).
+    interval : str
+        One of ``weekly``, ``monthly``, or ``yearly``.
+
+    Returns
+    -------
+    datetime.date
+        First day of the following calendar period.
+
+    Raises
+    ------
+    ValueError
+        If ``interval`` is not a supported grouped-bar interval.
+    """
     if interval == "weekly":
         return start + timedelta(days=7)
     if interval == "monthly":
@@ -257,7 +368,25 @@ def _next_bucket_start(start: date, interval: str) -> date:
 
 
 def _period_label(bucket: ChartBucket, interval: str) -> str:
-    """Readable categorical labels for equally spaced grouped bars."""
+    """Produce a compact calendar label for a grouped bar axis.
+
+    Parameters
+    ----------
+    bucket : :class:`zooniverse_dashboard.chart_data.ChartBucket`
+        Calendar bucket whose start identifies the displayed period.
+    interval : str
+        Grouped interval: ``weekly``, ``monthly`` or ``yearly``.
+
+    Returns
+    -------
+    str
+        Week-start date, abbreviated month plus year, or a four-digit year.
+
+    Raises
+    ------
+    ValueError
+        If ``interval`` is not a supported grouped-bar interval.
+    """
     if interval == "weekly":
         return bucket.start.strftime("%d %b '%y")
     if interval == "monthly":
@@ -268,14 +397,63 @@ def _period_label(bucket: ChartBucket, interval: str) -> str:
 
 
 def _period_position(day: date, bucket: ChartBucket, index: int, interval: str) -> float:
-    """Preserve a launch's calendar-day position within an equal-width bar slot."""
+    """Map one launch day to a fractional coordinate inside a calendar slot.
+
+    Weekly, monthly and yearly bars occupy equally spaced numeric slots. The
+    launch's position within the slot is proportional to elapsed calendar days,
+    including leap-year months and years.
+
+    Parameters
+    ----------
+    day : datetime.date
+        Launch date within the supplied bucket.
+    bucket : :class:`zooniverse_dashboard.chart_data.ChartBucket`
+        Bucket containing the launch day.
+    index : int
+        Zero-based numeric X-coordinate of the corresponding period.
+    interval : str
+        Grouped-bar interval.
+
+    Returns
+    -------
+    float
+        Fractional numeric X-coordinate within the bar's allotted slot.
+
+    Raises
+    ------
+    ValueError
+        If the interval is unsupported for grouped bars.
+    """
     span = (_next_bucket_start(bucket.start, interval) - bucket.start).days
     elapsed = (day - bucket.start).days
     return index + _PERIOD_BAR_WIDTH * ((elapsed + 0.5) / span - 0.5)
 
 
 def _period_bar_geometry(bucket: ChartBucket, index: int, interval: str) -> tuple[float, float]:
-    """Center/width for the observed portion, including partial edge periods."""
+    """Calculate bar center and proportional observed width in a period slot.
+
+    A partial first or last bucket occupies only the fraction of its month,
+    week or year covered by the snapshot; the unobserved portion remains empty.
+
+    Parameters
+    ----------
+    bucket : :class:`zooniverse_dashboard.chart_data.ChartBucket`
+        Calendar bucket with first and last observed days.
+    index : int
+        Integer slot index on the numeric X-axis.
+    interval : str
+        Weekly, monthly or yearly period selection.
+
+    Returns
+    -------
+    tuple[float, float]
+        Numeric bar center and width, in period-slot units.
+
+    Raises
+    ------
+    ValueError
+        If ``interval`` is not a grouped-bar interval.
+    """
     span = (_next_bucket_start(bucket.start, interval) - bucket.start).days
     first = (bucket.first_observed - bucket.start).days
     observed = (bucket.last_observed - bucket.first_observed).days + 1
@@ -283,8 +461,30 @@ def _period_bar_geometry(bucket: ChartBucket, index: int, interval: str) -> tupl
     return center, _PERIOD_BAR_WIDTH * observed / span
 
 
-def _period_ticks(first: int, last: int, labels: list[str], *, max_ticks: int = 10):
-    """Initial ticks for the visible window; browser navigation adapts their density."""
+def _period_ticks(
+    first: int, last: int, labels: list[str], *, max_ticks: int = 10
+) -> tuple[list[int], list[str]]:
+    """Select sparse initial tick locations from indexed calendar labels.
+
+    Browser-side navigation can later update tick density as the view changes.
+    The returned indexes are clipped to the supplied label sequence.
+
+    Parameters
+    ----------
+    first : int
+        First visible zero-based period index.
+    last : int
+        Last visible zero-based period index, inclusive.
+    labels : list[str]
+        All available calendar-period axis labels.
+    max_ticks : int, optional
+        Maximum target number of initial labels, default 10.
+
+    Returns
+    -------
+    tuple[list[int], list[str]]
+        Selected numeric tick positions and their matching text labels.
+    """
     step = max(1, (last - first + 1 + max_ticks - 1) // max_ticks)
     indexes = list(range(max(0, first), min(len(labels) - 1, last) + 1, step))
     return indexes, [labels[index] for index in indexes]
@@ -294,21 +494,59 @@ def history_figure(
     snapshot: Snapshot,
     *,
     window: str = "90",
-    focus_event: dict | None = None,
+    focus_event: dict[str, Any] | None = None,
     interval: str = "daily",
     plot_type: str = "line",
     launches: LaunchSnapshot | None = None,
 ) -> go.Figure:
-    """Create a calendar-binned plot with a y range fitted to its initial viewport.
+    """Build a Plotly activity chart with optional anomalies and launches.
 
-    Daily anomaly events remain plotted at their exact detected UTC dates.
-    They are not shifted into a weekly/monthly/yearly bucket. Grouped bars
-    are evenly spaced by calendar period, with launch days positioned within
-    their actual period rather than on an absolute-time axis.
+    Calendar-binned source counts are displayed as daily/weekly/monthly/yearly
+    lines or bars. Non-daily bars use evenly spaced numeric calendar positions;
+    daily bars and all lines retain an actual UTC date axis. Snapshot-bounded
+    initial ranges and period metadata allow ``history_zoom.js`` to restore a
+    shared UTC viewport after switching controls or pages. Daily anomaly diamonds
+    are clickable; optional violet launch triangles sit on the baseline on every
+    activity chart. The Y-axis initially fits the visible counts.
+
+    Parameters
+    ----------
+    snapshot : :class:`zooniverse_dashboard.snapshots.Snapshot`
+        Validated daily count history for Users, Classifications, or Talk.
+    window : str, optional
+        Visible-window preset (number of days or ``all``), default ``90``.
+    focus_event : dict[str, typing.Any] or None, optional
+        Optional validated anomaly event with source, date bounds and ID. A
+        matching event temporarily focuses its surrounding time region.
+    interval : str, optional
+        ``daily``, ``weekly``, ``monthly`` or ``yearly``, default ``daily``.
+    plot_type : str, optional
+        ``line`` or ``bars``, default ``line``.
+    launches : :class:`zooniverse_dashboard.project_launches.LaunchSnapshot` or None, optional
+        Optional independently validated project-launch overlay. Missing data
+        simply omit launch markers.
+
+    Returns
+    -------
+    plotly.graph_objects.Figure
+        Interactive figure with calendar-axis metadata, hover labels, and traces.
+
+    Raises
+    ------
+    ValueError
+        If ``plot_type`` is unsupported, or a supplied interval/window value
+        cannot be interpreted by its calendar helpers.
+
+    See Also
+    --------
+    :func:`zooniverse_dashboard.chart_data.group_daily`
+        Aggregate continuous daily source history.
+    :func:`zooniverse_dashboard.anomalies.catalog.visible_events`
+        Retrieve current catalog events without recalculating them.
     """
     if plot_type not in {"line", "bars"}:
         raise ValueError("Unsupported chart type")
-    bins = group_daily(snapshot.daily, interval)
+    bins: list[ChartBucket] = group_daily(snapshot.daily, interval)
     visible_first, visible_last = visible_date_range(
         first=snapshot.first, last=snapshot.last, window=window
     )
@@ -428,7 +666,7 @@ def history_figure(
     # many projects launched close together. Calendar X positions stay exact.
     if launches is not None:
         by_period = {bucket.start: (index, bucket) for index, bucket in enumerate(bins)}
-        marker_days = [
+        marker_days: list[tuple[date, int]] = [
             (day, count)
             for day, count in launches.launches
             if snapshot.first <= day <= snapshot.last and launches.first <= day <= launches.last
@@ -552,6 +790,26 @@ def history_figure(
 
 
 def _load_optional_launches(source: str) -> LaunchSnapshot | None:
+    """Load the optional project-launch overlay for an activity chart.
+
+    Unreadable, missing or invalid launch snapshots do not block a valid source
+    chart from rendering, and no upstream project query is performed.
+
+    Parameters
+    ----------
+    source : str
+        Activity page key; unsupported keys skip launch loading.
+
+    Returns
+    -------
+    :class:`zooniverse_dashboard.project_launches.LaunchSnapshot` or None
+        Parsed launch snapshot if available, otherwise ``None``.
+
+    See Also
+    --------
+    :func:`zooniverse_dashboard.project_launches.load_launches`
+        Load and validate the locally stored launch data.
+    """
     if source not in PAGE_CONFIG:
         return None
     try:
@@ -560,8 +818,29 @@ def _load_optional_launches(source: str) -> LaunchSnapshot | None:
         return None
 
 
-def register_history_callback(source: str):
-    """Register snapshot-backed chart navigation and marker hover affordances."""
+def register_history_callback(source: str) -> Callable[..., go.Figure]:
+    """Register chart rendering and anomaly navigation for an activity source.
+
+    The figure callback reads only local snapshots and substitutes a placeholder
+    if snapshot data cannot be loaded. The click callback validates event IDs
+    against the currently visible anomaly catalog before navigating to the detail
+    page. Callback registration takes place when a Dash Page module is imported.
+
+    Parameters
+    ----------
+    source : str
+        Activity key used to name graph, route, and chart controls.
+
+    Returns
+    -------
+    collections.abc.Callable
+        Registered Dash figure callback function for this source.
+
+    See Also
+    --------
+    :func:`zooniverse_dashboard.anomalies.catalog.event_by_id`
+        Validate clicked anomaly identifiers against active catalog events.
+    """
 
     @callback(
         Output(f"{source}-graph", "figure"),
@@ -570,7 +849,30 @@ def register_history_callback(source: str):
         Input(f"{source}-interval", "value"),
         Input(f"{source}-plot-type", "value"),
     )
-    def update(search, window, interval, plot_type):
+    def update(
+        search: str | None, window: str, interval: str, plot_type: str
+    ) -> go.Figure:
+        """Regenerate an activity chart after a route or control change.
+
+        A route's ``episode`` parameter focuses an anomaly only when navigation or
+        initial rendering, rather than a user control change, triggered the callback.
+
+        Parameters
+        ----------
+        search : str or None
+            Current URL query component, possibly containing ``episode``.
+        window : str
+            Visible-time preset selected in the page controls.
+        interval : str
+            Calendar aggregation interval.
+        plot_type : str
+            Line or bar chart selection.
+
+        Returns
+        -------
+        plotly.graph_objects.Figure
+            Chart with optional anomaly focus, or an unavailable-snapshot figure.
+        """
         event_id = parse_qs((search or "").lstrip("?")).get("episode", [None])[0]
         route_changed = f"{source}-route.search" in ctx.triggered_prop_ids
         controls_changed = any(
@@ -601,7 +903,23 @@ def register_history_callback(source: str):
         Input(f"{source}-graph", "clickData"),
         prevent_initial_call=True,
     )
-    def open_anomaly(click_data):
+    def open_anomaly(click_data: dict[str, Any] | None) -> Any:
+        """Convert a validated anomaly click into a detail-page navigation.
+
+        Launch markers and regular activity traces cannot redirect to arbitrary
+        routes because only event identifiers present in the current catalog are used.
+
+        Parameters
+        ----------
+        click_data : dict[str, typing.Any] or None
+            Dash Plotly click payload; may contain multiple point descriptions.
+
+        Returns
+        -------
+        str or dash.no_update
+            URL for the selected anomaly episode, or Dash's no-update sentinel when
+            the click did not select a valid episode.
+        """
         if not click_data:
             return no_update
         for point in click_data.get("points", []):

@@ -1,41 +1,104 @@
-"""One manual collection-to-analysis workflow for CLI and web background workers.
+"""Orchestrate collection and offline anomaly analysis as one manual run.
 
-Only validated aggregate counts are ingested; analysis reads local snapshots.
-The existing refresh lock, cooldown and atomic publication remain authoritative.
+This module connects the serialized four-stream collector in
+:mod:`zooniverse_dashboard.refresh` with the snapshot-only anomaly-catalog
+rebuild in :mod:`zooniverse_dashboard.anomalies.catalog`. The same function
+serves the CLI and the detached browser worker. A failure to rebuild the
+catalog never rolls back successfully published aggregate snapshots or
+replaces a prior valid catalog.
+
+The return value and progress messages are deliberately bounded to safe
+operational state and per-source outcomes, not raw error details, credentials,
+or individual records. No Dash request performs upstream queries through
+this module.
+
+See Also
+--------
+:func:`refresh_and_rebuild`
+    Execute both stages and return a privacy-safe summary.
 """
 
 from __future__ import annotations
 
 import logging
 import time
+from pathlib import Path
+from typing import Any, Callable
 
 from zooniverse_dashboard.anomalies.catalog import rebuild
 from zooniverse_dashboard.logging_utils import safe_error_trace
 from zooniverse_dashboard.refresh import refresh_all
 from zooniverse_dashboard.snapshots import SOURCES
 
-LOG = logging.getLogger("zooniverse_dashboard.refresh")
+LOG: logging.Logger = logging.getLogger("zooniverse_dashboard.refresh")
 
 
-def refresh_and_rebuild(*, root=None, progress=None) -> dict:
-    """Refresh sources and rebuild the catalog, retaining good snapshots on failures.
+def refresh_and_rebuild(
+    *, root: Path | None = None, progress: Callable[[str], None] | None = None
+) -> dict[str, Any]:
+    """Refresh aggregate snapshots, then rebuild the anomaly catalog.
 
-    Expected refresh rejections propagate unchanged. An analysis failure does
-    not discard successfully refreshed snapshots or overwrite a valid catalog.
-    Returns only a small public-safe summary for the web or CLI.
+    Run :func:`zooniverse_dashboard.refresh.refresh_all` first. Collection
+    rejections propagate unchanged. Whether collection succeeds entirely or
+    partially, attempt the offline
+    :func:`zooniverse_dashboard.anomalies.catalog.rebuild` using whatever valid
+    snapshots remain. Rebuild failure is converted to an overall partial failure;
+    no valid activity snapshot or anomaly catalog is discarded.
+
+    Parameters
+    ----------
+    root : pathlib.Path or None, optional
+        Shared directory containing validated snapshots and anomaly metadata.
+    progress : collections.abc.Callable[[str], None] or None, optional
+        Receives predefined, aggregate-only progress steps. This callback is
+        also used by the collector and anomaly rebuild.
+
+    Returns
+    -------
+    dict[str, typing.Any]
+        Public-safe mapping with ``state`` (``ok`` or ``partial_failure``),
+        ``refresh_state``, ``anomalies_state``, and a ``sources`` mapping of
+        collection outcomes. ``anomalies_state`` is ``failed`` after a rebuild
+        exception, otherwise ``ok`` or ``partial_failure``.
+
+    Raises
+    ------
+    zooniverse_dashboard.refresh.RefreshRejected
+        If collection admission fails due to locking or the cooldown.
+    ValueError
+        If collection settings or stored metadata are invalid before source work.
+    OSError
+        If collection status cannot be published or the shared volume fails.
+
+    See Also
+    --------
+    :func:`zooniverse_dashboard.refresh_job.run_job`
+        Persist the same workflow in a detached browser-triggered worker.
     """
-    started = time.perf_counter()
+    started: float = time.perf_counter()
 
     def announce(message: str) -> None:
+        """Log and forward one privacy-safe pipeline progress description.
+
+        Parameters
+        ----------
+        message : str
+            Fixed progress text, never a raw exception or remote API payload.
+
+        Returns
+        -------
+        None
+            Emits a log event and optionally calls the progress callback.
+        """
         LOG.info("event=pipeline_progress detail=%s", message)
         if progress is not None:
             progress(message)
 
     announce("Starting data refresh")
-    refresh = refresh_all(root=root, progress=announce)
+    refresh: dict[str, Any] = refresh_all(root=root, progress=announce)
     announce("Aggregate collection finished; rebuilding anomalies")
     try:
-        catalog = rebuild(root=root, progress=announce)
+        catalog: dict[str, Any] = rebuild(root=root, progress=announce)
     except Exception as exc:
         LOG.error(
             "event=anomaly_rebuild_failed error_type=%s trace=%s",
@@ -50,9 +113,11 @@ def refresh_and_rebuild(*, root=None, progress=None) -> dict:
             "sources": dict(refresh["streams"]),
         }
 
-    analysis = catalog["sources"]
-    anomaly_ok = all(analysis.get(source, {}).get("status") == "ok" for source in SOURCES)
-    state = "ok" if refresh["state"] == "ok" and anomaly_ok else "partial_failure"
+    analysis: dict[str, Any] = catalog["sources"]
+    anomaly_ok: bool = all(
+        analysis.get(source, {}).get("status") == "ok" for source in SOURCES
+    )
+    state: str = "ok" if refresh["state"] == "ok" and anomaly_ok else "partial_failure"
     announce(
         "Refresh and anomaly analysis complete"
         if state == "ok"

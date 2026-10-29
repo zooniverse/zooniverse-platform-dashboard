@@ -9,7 +9,7 @@ volunteer-level data.**
 
 | Command | Arguments | Access required | Result |
 |---|---|---|---|
-| `refresh-data` | None | Read-only Panoptes SQL and public ERAS HTTPS | Re-fetch selected history, validate/publish all three snapshots, then rebuild anomaly catalog |
+| `refresh-data` | None | Read-only Panoptes SQL and public ERAS HTTPS | Re-fetch selected history, validate/publish three activity snapshots and the independent project-launch snapshot, then rebuild the anomaly catalog |
 | `set-date-limit` | Optional `DAYS` | Writable local snapshot directory only | Print effective history limit or persist a new one |
 | `rebuild-anomalies` | None | Existing aggregate JSON snapshots only | Rebuild the anomaly catalog without contacting upstream systems |
 
@@ -28,7 +28,11 @@ Runs the same pipeline as clicking **Refresh data** in the UI:
 1. Apply the effective date limit to completed UTC dates (through yesterday).
 2. Query daily Panoptes registrations and public ERAS classifications and Talk
    totals for the **full selected window**, rather than appending only recent days.
-3. Validate and atomically publish each successful source snapshot.
+   Collect approved Panoptes project launches separately, including publicly
+   shareable project titles, for the same completed-day cutoff.
+3. Validate and atomically publish each successful activity snapshot and the
+   independent `project_launches.json` file; a failed stream keeps its prior
+   valid snapshot.
 4. Rebuild `anomalies.json` from available validated snapshots, then report the
    overall outcome.
 
@@ -36,7 +40,8 @@ The command writes progress to terminal logs. The UI starts a detached Python wo
 progress and automatically reload after full success. A durable **60-minute cooldown** and cross-process lock prevent repeated/concurrent
 refreshes. On source failure, the previous validated snapshot remains in place;
 anomaly results that no longer match a source snapshot are withheld as stale.
-The aggregate refresh can partially succeed; inspect the reported state and
+Any of the four collection stages can fail independently; the overall refresh
+can partially succeed. Inspect the reported state and
 [Operations](operations.md) for diagnostics.
 
 **Example:** after cloning, installing and configuring `.env`, run
@@ -100,15 +105,30 @@ The commands above update **the container's `/data` volume**, not your local
 `.local/data`. Do not refresh two separate deployments expecting their files
 to be synchronized.
 
+## Project-launch diagnostic (developer only)
+
+```bash
+python scripts/probe_project_launches.py
+```
+
+This opt-in script checks the schema and historical completeness of the
+Panoptes project-launch date fields. It runs **read-only** SQL, prints table
+metadata and aggregate counts by year/day, and does not retrieve individual
+project rows, titles, or owners. It requires the configured authorized
+read-only `DB_URL_PANOPTES` connection and must not be run against a database
+without permission. It does **not** write `project_launches.json` or update the
+browser dashboard. See [Project launch markers](project_launch_markers.md)
+for the production collector's separate, validated snapshot contract.
+
 ## Related developer utilities
 
-These are developer tooling commands, not data collection APIs:
+These are development and documentation checks, not data collection APIs:
 
 ```bash
 pytest -q
-black --check app.py src tests
-ruff check app.py src tests
-sphinx-build -b html docs docs/_build/html
+black --check app.py src tests scripts/probe_project_launches.py docs/conf.py
+ruff check app.py src tests scripts/probe_project_launches.py docs/conf.py
+sphinx-build -b html -W --keep-going docs docs/_build/html
 ```
 
 None of the commands requires an API key for ERAS; the only sensitive runtime

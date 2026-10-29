@@ -1,12 +1,37 @@
-"""Snapshot-only Projects page: approved launch counts by month or year."""
+"""Render approved project-launch history using saved aggregate JSON.
+
+The Projects page reads :class:`zooniverse_dashboard.project_launches.LaunchSnapshot`
+from disk and summarizes launches by calendar month or year. It shows zero-count
+periods, retains partial-period boundaries, and never extrapolates an
+incomplete current period. Monthly bars are the default, with an optional
+line chart and year aggregation. No new Panoptes queries or anomaly model fits
+occur during page rendering or chart interaction.
+
+Like the activity charts, Projects publishes ``layout.meta.history_zoom``
+metadata so the client can translate between numeric calendar slots and UTC
+boundaries when the user navigates across pages. Figures themselves do not
+show project-launch triangles, because the plotted values already represent
+project launches.
+
+See Also
+--------
+:func:`zooniverse_dashboard.projects_data.launch_buckets`
+    Build monthly or yearly launch aggregates.
+:func:`zooniverse_dashboard.projects_data.project_metrics`
+    Calculate period summary cards.
+:func:`zooniverse_dashboard.ui.history_figure`
+    Activity chart sharing the same browser viewport.
+"""
 
 from __future__ import annotations
 
 import json
 from datetime import datetime, timedelta, timezone
+from typing import Any, Callable
 
 import plotly.graph_objects as go
 from dash import Input, Output, callback, dcc, html
+from dash.development.base_component import Component
 
 from zooniverse_dashboard.collection_config import effective_history_days
 from zooniverse_dashboard.project_launches import LaunchSnapshot, load_launches
@@ -25,17 +50,17 @@ from zooniverse_dashboard.ui import (
     _period_ticks,
 )
 
-WINDOW_OPTIONS = [
+WINDOW_OPTIONS: list[dict[str, str]] = [
     {"label": "Last 12 months", "value": "12"},
     {"label": "Last 3 years", "value": "36"},
     {"label": "Last 5 years", "value": "60"},
     {"label": "All available", "value": "all"},
 ]
-INTERVAL_OPTIONS = [
+INTERVAL_OPTIONS: list[dict[str, str]] = [
     {"label": "Month", "value": "monthly"},
     {"label": "Year", "value": "yearly"},
 ]
-PLOT_OPTIONS = [
+PLOT_OPTIONS: list[dict[str, str]] = [
     {"label": "Line", "value": "line"},
     {"label": "Bars", "value": "bars"},
 ]
@@ -48,7 +73,43 @@ def projects_figure(
     interval: str = "monthly",
     plot_type: str = "bars",
 ) -> go.Figure:
-    """Launch counts per calendar period; no markers or anomaly inference."""
+    """Build a monthly or yearly Plotly chart of approved project launches.
+
+    Project-launch snapshots contain sparse daily launch counts. This figure
+    uses :func:`zooniverse_dashboard.projects_data.launch_buckets` to include
+    zero-launch periods and preserve observed boundary widths. Bars use equal
+    calendar slots with numeric positions; lines use a UTC date axis. Both supply
+    real UTC period boundaries in ``layout.meta.history_zoom`` for cross-page
+    zoom restoration. The chart itself needs no launch overlay or anomaly traces.
+
+    Parameters
+    ----------
+    snapshot : :class:`zooniverse_dashboard.project_launches.LaunchSnapshot`
+        Validated launch history with recorded UTC dates and counts.
+    window : str, optional
+        View preset (``12``, ``36``, ``60`` or ``all``), default ``36`` months.
+    interval : str, optional
+        ``monthly`` or ``yearly``, default ``monthly``.
+    plot_type : str, optional
+        ``bars`` or ``line``, default ``bars``.
+
+    Returns
+    -------
+    plotly.graph_objects.Figure
+        Figure including hover periods, partial-period geometry and zoom metadata.
+
+    Raises
+    ------
+    ValueError
+        If any graph configuration is unsupported.
+
+    See Also
+    --------
+    :func:`zooniverse_dashboard.projects_data.viewport_start`
+        Find the initial calendar cutoff.
+    :func:`zooniverse_dashboard.ui.history_figure`
+        Related activity graph participating in shared UTC zoom.
+    """
     if interval not in INTERVALS or window not in WINDOWS or plot_type not in {"bars", "line"}:
         raise ValueError("Unsupported Projects graph configuration")
     bins = launch_buckets(snapshot, interval)
@@ -117,7 +178,7 @@ def projects_figure(
             "maxallowed": (snapshot.last + timedelta(days=1)).isoformat(),
             "rangeslider": {"visible": True, "thickness": 0.11, "yaxis": {"rangemode": "auto"}},
         }
-    meta = {
+    meta: dict[str, Any] = {
         "source": "projects",
         "window": window,
         "interval": interval,
@@ -153,8 +214,26 @@ def projects_figure(
     return fig
 
 
-def projects_layout():
-    """Render the page exclusively from the last valid launch JSON."""
+def projects_layout() -> Component:
+    """Build the Projects page from the latest saved launch snapshot.
+
+    Create summary cards, freshness/configuration notices and a monthly/yearly
+    chart with view and plot-style controls. Missing or invalid JSON results in a
+    friendly placeholder rather than an exception; rendering never queries
+    Panoptes or any other upstream service.
+
+    Returns
+    -------
+    dash.development.base_component.Component
+        Full Projects layout, or a notice if no usable launch snapshot exists.
+
+    See Also
+    --------
+    :func:`zooniverse_dashboard.project_launches.load_launches`
+        Validate and read ``project_launches.json``.
+    :func:`zooniverse_dashboard.projects_data.project_metrics`
+        Calculate current and prior-period summary card counts.
+    """
     try:
         snapshot = load_launches()
     except (OSError, ValueError, TypeError, KeyError, json.JSONDecodeError):
@@ -175,7 +254,7 @@ def projects_layout():
         configured_days = effective_history_days()
     except ValueError:
         configured_days = None
-    cards = []
+    cards: list[Component] = []
     for metric in project_metrics(snapshot):
         range_label = (
             f"{metric.start.isoformat()} – {metric.end.isoformat()} UTC"
@@ -322,8 +401,18 @@ def projects_layout():
     )
 
 
-def register_projects_callback():
-    """Render the Projects chart without a DB query on interaction."""
+def register_projects_callback() -> Callable[..., go.Figure]:
+    """Register the snapshot-only callback for Projects chart controls.
+
+    Each control change loads the locally saved launch snapshot and constructs a
+    new figure. Invalid, unavailable or corrupt snapshots yield an explanatory
+    Plotly annotation; no remote collection is triggered.
+
+    Returns
+    -------
+    collections.abc.Callable
+        Registered callback accepting window, interval and plot type.
+    """
 
     @callback(
         Output("projects-graph", "figure"),
@@ -331,7 +420,23 @@ def register_projects_callback():
         Input("projects-interval", "value"),
         Input("projects-plot-type", "value"),
     )
-    def update(window, interval, plot_type):
+    def update(window: str, interval: str, plot_type: str) -> go.Figure:
+        """Regenerate the Projects figure from local launch data.
+
+        Parameters
+        ----------
+        window : str
+            Visible-window preset (months or all history).
+        interval : str
+            Monthly or yearly aggregation interval.
+        plot_type : str
+            Line or bar visualization selection.
+
+        Returns
+        -------
+        plotly.graph_objects.Figure
+            Project-launch plot or an unavailable-snapshot annotation.
+        """
         try:
             return projects_figure(
                 load_launches(), window=window, interval=interval, plot_type=plot_type

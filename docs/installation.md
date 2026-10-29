@@ -50,7 +50,7 @@ chmod 600 .env
 
 Edit `.env` locally (never commit it):
 
-```dotenv
+```properties
 # Replace the placeholder values with an authorized READ-ONLY connection.
 DB_URL_PANOPTES=postgresql+psycopg://READ_ONLY_USERNAME:CHANGE_ME@HOST:5432/DATABASE
 ANALYTICS_DATA_DIR=.local/data

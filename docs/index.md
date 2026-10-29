@@ -73,7 +73,5 @@ project_launch_markers
 projects
 operations
 privacy
-publishing
-ci
 api
 ```

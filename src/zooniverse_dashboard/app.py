@@ -1,8 +1,33 @@
-"""Application factory. Importing Dash never connects to Panoptes or ERAS."""
+"""Create the Dash application and coordinate browser-visible refresh status.
+
+The application serves the snapshot-backed Users, Classifications, Talk,
+Projects, and Anomalies pages through Dash Pages. A manually requested refresh
+is admitted to a detached worker; neither the initial page load nor a chart
+callback connects directly to Panoptes or ERAS. Global callbacks display the
+persisted job state, check snapshot freshness, and reload the browser once a
+successful run has completed.
+
+The Flask application also exposes ``/healthz`` and redirects ``/`` to the
+Users page. Importing this module creates the Dash application and its Flask
+``server`` object for Gunicorn; this is distinct from launching the development
+server via the repository's top-level ``app.py``.
+
+See Also
+--------
+:func:`zooniverse_dashboard.refresh_job.start_job`
+    Admission to the detached refresh worker.
+:func:`zooniverse_dashboard.refresh_job.load_job`
+    Read persisted worker progress without accessing upstream systems.
+:func:`zooniverse_dashboard.ui.register_history_callback`
+    Register snapshot-backed activity chart callbacks.
+"""
+
+from __future__ import annotations
 
 import logging
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from typing import Any
 
 from dash import (
     Dash,
@@ -14,7 +39,7 @@ from dash import (
     page_container,
     page_registry,
 )
-from flask import redirect, request
+from flask import Response, redirect, request
 
 from zooniverse_dashboard.anomalies.catalog import visible_events
 from zooniverse_dashboard.collection_config import effective_history_days
@@ -23,11 +48,30 @@ from zooniverse_dashboard.refresh import RefreshRejected, load_status
 from zooniverse_dashboard.refresh_job import load_job, start_job
 from zooniverse_dashboard.snapshots import SOURCES, load_snapshot
 
-PACKAGE_DIR = Path(__file__).resolve().parent
-LOG = logging.getLogger("zooniverse_dashboard.refresh")
+PACKAGE_DIR: Path = Path(__file__).resolve().parent
+LOG: logging.Logger = logging.getLogger("zooniverse_dashboard.refresh")
 
 
 def create_app() -> Dash:
+    """Create the fully configured Dash application and Flask routes.
+
+    Register the global navigation, the manual-refresh interface, status polling,
+    and the client-side completion reload. The Dash Pages system registers page
+    layouts and metric-specific callbacks independently. Creating this object
+    configures logging but does not itself collect new upstream data.
+
+    Returns
+    -------
+    dash.Dash
+        App instance with the Flask ``server`` registered for WSGI serving.
+
+    See Also
+    --------
+    :func:`zooniverse_dashboard.refresh_job.start_job`
+        Start the detached data collection workflow.
+    :func:`zooniverse_dashboard.refresh.load_status`
+        Read the last coordinator status from local storage.
+    """
     configure_refresh_logging()
     app = Dash(
         __name__,
@@ -109,8 +153,29 @@ def create_app() -> Dash:
         Input("refresh-now", "n_clicks"),
         prevent_initial_call=True,
     )
-    def do_refresh(_clicks):
-        """Admit the job quickly; collection never runs in a web callback."""
+    def do_refresh(_clicks: int | None) -> tuple[str | None, str]:
+        """Attempt to schedule a detached refresh in response to a button click.
+
+        The browser callback returns immediately after worker admission, not after
+        collection. Expected cooldown or concurrency rejection is returned as a
+        human-readable message; unexpected errors are logged without raw details.
+
+        Parameters
+        ----------
+        _clicks : int or None
+            Dash click count used solely to trigger callback execution.
+
+        Returns
+        -------
+        tuple[str or None, str]
+            Scheduled run ID and success text, or ``None`` and a safe rejection/error
+            message. This callback intentionally does not propagate worker errors.
+
+        See Also
+        --------
+        :func:`zooniverse_dashboard.refresh_job.start_job`
+            Enforce admission and return a run identifier.
+        """
         try:
             run_id = start_job()
             LOG.info("event=web_refresh_scheduled run=%s", run_id[:12])
@@ -133,9 +198,39 @@ def create_app() -> Dash:
         Input("refresh-run", "data"),
         Input("refresh-status-poll", "n_intervals"),
     )
-    def job_progress(_tick, run_id, _status_tick):
-        """Poll quickly only for active jobs, including jobs from other sessions."""
-        hidden = {"display": "none"}
+    def job_progress(
+        _tick: int | None, run_id: str | None, _status_tick: int | None
+    ) -> tuple[Any, dict[str, str], bool, dict[str, Any] | None, str, dict[str, str], bool]:
+        """Describe the persisted refresh job and set UI polling controls.
+
+        Active jobs remain visible if another browser session started them. The fast
+        one-second poll is enabled only while an active job exists. A completed
+        successful run triggers the reloading signal only for its initiating browser
+        session and only shortly after completion; interrupted, rejected and partial
+        runs are represented without erasing existing valid snapshots.
+
+        Parameters
+        ----------
+        _tick : int or None
+            Fast poll counter, used only as a Dash callback trigger.
+        run_id : str or None
+            Identifier of the run initiated by this browser session, if any.
+        _status_tick : int or None
+            Slow poll counter, allowing detection of other sessions' jobs.
+
+        Returns
+        -------
+        tuple
+            Seven Dash output values, in order: progress children, panel style,
+            refresh-button disabled flag, optional reload payload, success-banner
+            text, banner style, and fast-poll disabled flag.
+
+        See Also
+        --------
+        :func:`zooniverse_dashboard.refresh_job.load_job`
+            Load worker state from durable local JSON.
+        """
+        hidden: dict[str, str] = {"display": "none"}
         try:
             job = load_job()
         except (OSError, ValueError, TypeError, KeyError):
@@ -216,8 +311,33 @@ def create_app() -> Dash:
         Input("refresh-status-poll", "n_intervals"),
         Input("refresh-feedback", "children"),
     )
-    def status(_ticks, _message):
-        parts = []
+    def status(_ticks: int | None, _message: str | None) -> str:
+        """Build the concise global snapshot and anomaly-status summary.
+
+        Read local source snapshots, last refresh status, worker state, configured
+        history window, and visible anomaly analyses. Unavailable data are reported
+        as text rather than causing the header to fail. This is a read-only status
+        callback and does not trigger collection or rebuild analysis.
+
+        Parameters
+        ----------
+        _ticks : int or None
+            Slow polling interval counter used as a callback trigger.
+        _message : str or None
+            Refresh-feedback text, also used only to trigger a status update.
+
+        Returns
+        -------
+        str
+            Human-readable status line containing history coverage, snapshot
+            timestamps, refresh state, and analysis readiness.
+
+        See Also
+        --------
+        :func:`zooniverse_dashboard.anomalies.catalog.visible_events`
+            Filter anomaly episodes against snapshot revisions.
+        """
+        parts: list[str] = []
         for source in SOURCES:
             try:
                 snapshot = load_snapshot(source)
@@ -255,13 +375,32 @@ def create_app() -> Dash:
         )
 
     @app.server.before_request
-    def homepage_redirect():
+    def homepage_redirect() -> Response | None:
+        """Redirect an HTTP GET for the root route to the Users page.
+
+        The Flask before-request hook leaves all other paths and methods unchanged.
+
+        Returns
+        -------
+        flask.Response or None
+            A 302 redirect for ``GET /``, otherwise ``None`` to continue dispatch.
+        """
         if request.method == "GET" and request.path == "/":
             return redirect("/users", code=302)
         return None
 
     @app.server.get("/healthz")
-    def healthz():
+    def healthz() -> dict[str, str]:
+        """Return the lightweight HTTP liveness response.
+
+        This endpoint checks the web process only: it does not validate upstream
+        database access, snapshot completeness, or refresh-worker readiness.
+
+        Returns
+        -------
+        dict[str, str]
+            JSON-serializable ``{"status": "ok"}`` payload.
+        """
         return {"status": "ok"}
 
     return app
