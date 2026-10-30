@@ -2,8 +2,10 @@
 
 This document tracks the UI consolidation that follows the `v0.1.0` release.
 Phase 1 recorded the existing four page variants and established characterization
-tests without changing the runtime. Phase 2 extracts shared presentation code
-in small steps while preserving that tested contract.
+tests without changing the runtime. Phase 2 extracted shared presentation code
+while preserving that tested contract. Phase 3 consolidates calendar aggregation
+and coverage checks, without blending continuous activity data and sparse
+project-launch data.
 
 ## One page skeleton, different specifications
 
@@ -92,6 +94,32 @@ when optional snapshot data is absent.
   zoom contract. Activity optional traces now honor `PageSpec.layers` for
   anomaly diamonds, project launch markers, and the trailing average.
 
+## Phase 3: calendar aggregation and coverage semantics
+
+- `chart_data.group_daily()` now aggregates both kinds of validated daily
+  series. With no explicit `coverage`, it retains the activity-series contract:
+  only observed periods are returned. With an inclusive `coverage=(first, last)`,
+  it fills *calendar periods* with no events, even when sparse launch snapshots
+  omit every day in that period. It does not materialize a daily zero row for
+  every missing date, which keeps all-history launch aggregation efficient.
+- `chart_data.next_bucket_start()` supplies the following UTC boundary for day,
+  ISO week, month, or year. `projects_data.next_period()` remains as a
+  month/year-only compatibility adapter for the existing Projects chart.
+- `periods.covered_period_total()` centralizes the rule for determining whether
+  a summary interval has sufficient coverage. It returns zero for an interval
+  containing no completed UTC days, `None` for an incomplete nonempty interval,
+  and delegates the actual sum to the caller only when all dates are covered.
+  Activity counts still use the existing prefix-sum calculation, while Projects
+  still totals approved launches in the sparse snapshot.
+- Coverage and counts have deliberately separate responsibilities: a date
+  outside the launch snapshot is **unknown**, not zero; a missing launch date
+  *within* the validated coverage is zero. This distinction also applies to
+  partial first/last months or years. Neither chart or KPI calculation
+  extrapolates an incomplete calendar interval.
+- The existing figure functions, snapshot JSON formats, collector queries,
+  anomaly detection, browser zoom metadata, and UI callbacks remain unchanged.
+  Characterization tests protect all 28 figure variants and their layouts.
+
 ## Phase 1 characterization and ongoing regression testing
 
 - `tests/test_page_specs.py` runs without Dash and verifies the page contracts,
@@ -114,11 +142,8 @@ they are skipped in minimal installations without Dash.
 
 ## Next refactor phase
 
-Use `PageSpec` to extract shared **presentation-only** building blocks:
-metric-card rendering, freshness/coverage notices, controls, graph scaffolding,
-calendar-axis helpers, and common `history_zoom` metadata construction.
-Keep each source's snapshot loader, KPI calculator, and figure-specific layer
-construction explicit; avoid an overly generic renderer that obscures when
-anomaly detection or project-launch data is actually available. The active
-figure functions should remain public, with their existing inputs and outputs,
-while implementation details migrate to shared modules in small tested patches.
+Consolidate the atomic-file and filesystem-safety mechanics shared between
+snapshot and anomaly-catalog publication, preserving independent format
+validation, worker locks, and the refresh cooldown. After that, consider
+small source-dispatch and browser-utility cleanups only when tests establish
+that they reduce coupling without changing observable behavior.

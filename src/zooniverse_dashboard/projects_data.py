@@ -25,7 +25,12 @@ from dataclasses import dataclass
 from datetime import date, timedelta
 from typing import Final
 
-from zooniverse_dashboard.chart_data import ChartBucket, bucket_start
+from zooniverse_dashboard.chart_data import (
+    ChartBucket,
+    group_daily,
+    next_bucket_start,
+)
+from zooniverse_dashboard.periods import covered_period_total
 from zooniverse_dashboard.project_launches import LaunchSnapshot
 
 INTERVALS: Final[tuple[str, ...]] = ("monthly", "yearly")
@@ -54,13 +59,9 @@ def next_period(start: date, interval: str) -> date:
         If ``interval`` is not supported or the next calendar boundary falls
         outside Python's representable date range.
     """
-    if interval == "monthly":
-        if start.month == 12:
-            return date(start.year + 1, 1, 1)
-        return date(start.year, start.month + 1, 1)
-    if interval == "yearly":
-        return date(start.year + 1, 1, 1)
-    raise ValueError("Projects charts support only month and year")
+    if interval not in INTERVALS:
+        raise ValueError("Projects charts support only month and year")
+    return next_bucket_start(start, interval)
 
 
 def launch_buckets(snapshot: LaunchSnapshot, interval: str) -> tuple[ChartBucket, ...]:
@@ -96,25 +97,11 @@ def launch_buckets(snapshot: LaunchSnapshot, interval: str) -> tuple[ChartBucket
     """
     if interval not in INTERVALS:
         raise ValueError("Projects charts support only month and year")
-    counts: dict[date, int] = snapshot.counts()
-    grouped: dict[date, int] = {}
-    for day, value in counts.items():
-        start = bucket_start(day, interval)
-        grouped[start] = grouped.get(start, 0) + value
-    result: list[ChartBucket] = []
-    start: date = bucket_start(snapshot.first, interval)
-    while start <= snapshot.last:
-        end_exclusive: date = next_period(start, interval)
-        result.append(
-            ChartBucket(
-                start=start,
-                first_observed=max(start, snapshot.first),
-                last_observed=min(end_exclusive - timedelta(days=1), snapshot.last),
-                count=grouped.get(start, 0),
-            )
-        )
-        start = end_exclusive
-    return tuple(result)
+    return group_daily(
+        snapshot.launches,
+        interval,
+        coverage=(snapshot.first, snapshot.last),
+    )
 
 
 def viewport_start(snapshot: LaunchSnapshot, window: str) -> date:
@@ -218,6 +205,11 @@ def project_metrics(snapshot: LaunchSnapshot) -> tuple[ProjectMetric, ...]:
         ("Current year", year, yesterday),
         ("Previous year", previous_year, year - timedelta(days=1)),
     )
+
+    def sum_between(start: date, end: date) -> int:
+        """Sum the sparse approved launches in a fully covered interval."""
+        return sum(value for day, value in snapshot.launches if start <= day <= end)
+
     metrics: list[ProjectMetric] = [
         ProjectMetric(
             "Recorded launches",
@@ -227,12 +219,12 @@ def project_metrics(snapshot: LaunchSnapshot) -> tuple[ProjectMetric, ...]:
         )
     ]
     for label, start, end in periods:
-        count: int | None
-        if start > end:
-            count = 0  # A new month/year with no completed days yet.
-        elif start < snapshot.first or end > snapshot.last:
-            count = None
-        else:
-            count = sum(value for day, value in snapshot.launches if start <= day <= end)
+        count: int | None = covered_period_total(
+            first=snapshot.first,
+            last=snapshot.last,
+            start=start,
+            end=end,
+            sum_between=sum_between,
+        )
         metrics.append(ProjectMetric(label, start, end, count))
     return tuple(metrics)

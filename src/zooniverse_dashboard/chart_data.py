@@ -111,40 +111,114 @@ def bucket_start(day: date, interval: str) -> date:
     raise ValueError("Unsupported aggregation interval")
 
 
-def group_daily(
-    daily: tuple[tuple[date, int], ...], interval: str = "daily"
-) -> tuple[ChartBucket, ...]:
-    """Sum chronological daily counts into UTC calendar periods.
-
-    Unlike rate normalization, this operation does not multiply partial
-    periods to estimate missing days. The input is expected to be sorted by
-    date, as in :attr:`zooniverse_dashboard.snapshots.Snapshot.daily`.
+def next_bucket_start(start: date, interval: str) -> date:
+    """Return the exclusive end of the calendar period containing ``start``.
 
     Parameters
     ----------
-    daily : tuple[tuple[datetime.date, int], ...]
-        Daily aggregate counts, ordered from oldest to newest.
-    interval : str, optional
-        Requested bin width, one of :data:`INTERVALS`; defaults to daily.
+    start : datetime.date
+        A date within the UTC calendar period.
+    interval : str
+        One of :data:`INTERVALS`, with Monday-starting ISO weeks.
 
     Returns
     -------
-    tuple[:class:`ChartBucket`, ...]
-        Calendar buckets in chronological order, retaining observed edges.
+    datetime.date
+        First day of the next period.
 
     Raises
     ------
     ValueError
-        If ``interval`` is not supported.
+        If the interval is unsupported or the next date is not representable.
+    """
+    beginning = bucket_start(start, interval)
+    if interval == "daily":
+        return beginning + timedelta(days=1)
+    if interval == "weekly":
+        return beginning + timedelta(days=7)
+    if interval == "monthly":
+        if beginning.month == 12:
+            return date(beginning.year + 1, 1, 1)
+        return date(beginning.year, beginning.month + 1, 1)
+    if interval == "yearly":
+        return date(beginning.year + 1, 1, 1)
+    raise ValueError("Unsupported aggregation interval")
+
+
+def group_daily(
+    daily: tuple[tuple[date, int], ...],
+    interval: str = "daily",
+    *,
+    coverage: tuple[date, date] | None = None,
+) -> tuple[ChartBucket, ...]:
+    """Aggregate daily counts into calendar periods, optionally filling gaps.
+
+    Without ``coverage``, return only observed periods, preserving the
+    first/last observed dates inside each bucket. This is the behavior used by
+    validated *continuous* :class:`zooniverse_dashboard.snapshots.Snapshot`
+    histories. With an inclusive ``coverage=(first, last)``, return **every**
+    calendar period overlapping that span, inserting zero-count periods for
+    omitted days. The latter mode is for validated *sparse*
+    :class:`zooniverse_dashboard.project_launches.LaunchSnapshot` histories;
+    it never treats dates outside the supplied coverage as zeros.
+
+    Both modes consume existing daily counts directly: sparse histories are
+    not expanded to one row per day. Counts are never extrapolated to full
+    periods at the coverage boundaries.
+
+    Parameters
+    ----------
+    daily : tuple[tuple[datetime.date, int], ...]
+        Validated daily counts in increasing date order. For sparse input,
+        missing dates are understood to be zero only within ``coverage``.
+    interval : str, optional
+        One of :data:`INTERVALS`; defaults to daily.
+    coverage : tuple[datetime.date, datetime.date] or None, optional
+        Inclusive known-coverage bounds. When provided, the output includes
+        zero-count periods and clamps their observed edges to these bounds.
+
+    Returns
+    -------
+    tuple[:class:`ChartBucket`, ...]
+        Chronological UTC calendar bins, retaining partial boundary periods.
+
+    Raises
+    ------
+    ValueError
+        If the interval is unsupported, coverage is reversed, or a daily
+        observation falls outside the explicitly supplied coverage.
     """
     if interval not in INTERVALS:
         raise ValueError("Unsupported aggregation interval")
-    buckets: list[ChartBucket] = []
+    if coverage is not None and coverage[0] > coverage[1]:
+        raise ValueError("Invalid calendar coverage")
+
+    grouped: dict[date, ChartBucket] = {}
     for day, count in daily:
-        beginning: date = bucket_start(day, interval)
-        if buckets and buckets[-1].start == beginning:
-            old: ChartBucket = buckets[-1]
-            buckets[-1] = ChartBucket(beginning, old.first_observed, day, old.count + count)
+        if coverage is not None and not (coverage[0] <= day <= coverage[1]):
+            raise ValueError("Daily count outside calendar coverage")
+        beginning = bucket_start(day, interval)
+        old = grouped.get(beginning)
+        if old is not None:
+            grouped[beginning] = ChartBucket(beginning, old.first_observed, day, old.count + count)
         else:
-            buckets.append(ChartBucket(beginning, day, day, count))
-    return tuple(buckets)
+            grouped[beginning] = ChartBucket(beginning, day, day, count)
+
+    if coverage is None:
+        return tuple(grouped.values())
+
+    first, last = coverage
+    result: list[ChartBucket] = []
+    beginning = bucket_start(first, interval)
+    while beginning <= last:
+        following = next_bucket_start(beginning, interval)
+        result.append(
+            ChartBucket(
+                beginning,
+                max(beginning, first),
+                min(following - timedelta(days=1), last),
+                grouped[beginning].count if beginning in grouped else 0,
+            )
+        )
+        beginning = following
+    return tuple(result)

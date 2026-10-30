@@ -16,7 +16,7 @@ See Also
 
 from dataclasses import dataclass
 from datetime import date, timedelta
-from typing import Protocol
+from typing import Callable, Protocol
 
 
 class DailyAggregateSeries(Protocol):
@@ -90,6 +90,49 @@ def _previous_month_start(day: date) -> date:
     return (month_start - timedelta(days=1)).replace(day=1)
 
 
+def covered_period_total(
+    *,
+    first: date,
+    last: date,
+    start: date,
+    end: date,
+    sum_between: Callable[[date, date], int],
+) -> int | None:
+    """Calculate a period total only when all requested dates are covered.
+
+    This helper implements the *shared coverage rule* for both continuous
+    activity snapshots and sparse project-launch snapshots. It does **not**
+    assume missing daily records mean zero: each caller provides a summation
+    function appropriate for its already-validated representation.
+
+    An empty current calendar interval has a total of zero, even when no
+    completed day of the new period exists yet. A nonempty interval extending
+    beyond the snapshot coverage has an unknown total (``None``); it is never
+    extrapolated or silently zero-filled.
+
+    Parameters
+    ----------
+    first, last : datetime.date
+        Inclusive first and last days of validated snapshot coverage.
+    start, end : datetime.date
+        Requested inclusive calendar interval. ``start > end`` denotes an
+        interval with no completed days.
+    sum_between : Callable[[datetime.date, datetime.date], int]
+        Called only for nonempty, fully covered intervals; returns their total.
+
+    Returns
+    -------
+    int or None
+        Zero for an empty interval, ``None`` for incomplete coverage, or the
+        source-specific total for a fully covered interval.
+    """
+    if start > end:
+        return 0
+    if start < first or end > last:
+        return None
+    return sum_between(start, end)
+
+
 def calendar_periods(snapshot: DailyAggregateSeries) -> tuple[CalendarPeriod, ...]:
     """Calculate seven calendar KPIs from a continuous daily aggregate series.
 
@@ -132,18 +175,22 @@ def calendar_periods(snapshot: DailyAggregateSeries) -> tuple[CalendarPeriod, ..
     running: list[int] = [0]
     for _, count in snapshot.daily:
         running.append(running[-1] + count)
+
+    def sum_between(start: date, end: date) -> int:
+        """Sum consecutive daily counts using the validated prefix table."""
+        left: int = (start - snapshot.first).days
+        right: int = (end - snapshot.first).days + 1
+        return running[right] - running[left]
+
     results: list[CalendarPeriod] = []
     for key, label, start, end in periods:
-        if start > end:
-            # Exactly at the first instant of a week/month/year, the current
-            # period has no completed days yet: display 0 rather than future data.
-            value = 0
-        elif start < snapshot.first or end > snapshot.last:
-            value = None
-        else:
-            left: int = (start - snapshot.first).days
-            right: int = (end - snapshot.first).days + 1
-            value = running[right] - running[left]
+        value: int | None = covered_period_total(
+            first=snapshot.first,
+            last=snapshot.last,
+            start=start,
+            end=end,
+            sum_between=sum_between,
+        )
         results.append(CalendarPeriod(key, label, start, end, value))
     return tuple(results)
 

@@ -237,3 +237,44 @@ def test_zoom_metadata_tracks_calendar_boundaries_and_page_source(monkeypatch):
             focus_event={"id": "e", "source": source, "start": "2024-02-10", "end": "2024-02-12"},
         )
         assert focused.layout.meta["history_zoom"]["focused"] is True
+
+
+def test_explicit_coverage_fills_sparse_calendar_periods_without_expanding_days():
+    from zooniverse_dashboard.chart_data import next_bucket_start
+
+    sparse = ((date(2024, 1, 31), 3), (date(2024, 3, 2), 2))
+    buckets = group_daily(sparse, "monthly", coverage=(date(2024, 1, 30), date(2024, 3, 3)))
+    assert [(b.start, b.count) for b in buckets] == [
+        (date(2024, 1, 1), 3),
+        (date(2024, 2, 1), 0),
+        (date(2024, 3, 1), 2),
+    ]
+    assert [(b.first_observed, b.last_observed) for b in buckets] == [
+        (date(2024, 1, 30), date(2024, 1, 31)),
+        (date(2024, 2, 1), date(2024, 2, 29)),
+        (date(2024, 3, 1), date(2024, 3, 3)),
+    ]
+    assert next_bucket_start(date(2024, 12, 30), "weekly") == date(2025, 1, 6)
+    assert next_bucket_start(date(2024, 12, 31), "monthly") == date(2025, 1, 1)
+    assert next_bucket_start(date(2024, 2, 29), "daily") == date(2024, 3, 1)
+    assert next_bucket_start(date(2024, 8, 17), "yearly") == date(2025, 1, 1)
+
+
+def test_sparse_empty_coverage_is_zero_but_absent_coverage_does_not_invent_periods():
+    assert group_daily((), "monthly") == ()
+    bins = group_daily((), "monthly", coverage=(date(2025, 12, 30), date(2026, 2, 1)))
+    assert [(b.start, b.count) for b in bins] == [
+        (date(2025, 12, 1), 0),
+        (date(2026, 1, 1), 0),
+        (date(2026, 2, 1), 0),
+    ]
+    assert bins[0].first_observed == date(2025, 12, 30)
+    assert bins[-1].last_observed == date(2026, 2, 1)
+    with pytest.raises(ValueError, match="coverage"):
+        group_daily((), "monthly", coverage=(date(2026, 1, 2), date(2026, 1, 1)))
+    with pytest.raises(ValueError, match="outside"):
+        group_daily(
+            ((date(2025, 12, 31), 2),),
+            "monthly",
+            coverage=(date(2026, 1, 1), date(2026, 2, 1)),
+        )
