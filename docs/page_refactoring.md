@@ -1,9 +1,9 @@
 # Page architecture refactor: behavioral baseline
 
 This document tracks the UI consolidation that follows the `v0.1.0` release.
-The **first phase does not change rendering**: it records what the four existing
-metric pages do and establishes tests that must continue to pass when their
-shared layout is extracted.
+Phase 1 recorded the existing four page variants and established characterization
+tests without changing the runtime. Phase 2 extracts shared presentation code
+in small steps while preserving that tested contract.
 
 ## One page skeleton, different specifications
 
@@ -49,11 +49,12 @@ The model separates:
 - **`snapshot_kind`**: continuous activity histories versus sparse approved
   project launches. The two kinds have different validation/coverage semantics.
 
-The specification is **not yet connected to the Dash renderers**. The existing
-`ui.py` and `projects_ui.py` still own the behavior, including snapshots,
-callbacks and figure creation. Keeping both implementations unchanged is
-intentional during Phase 1; the new tests compare them to the specification so
-that drift is detected before reuse.
+The page specification now drives common Dash controls, IDs, card scaffolding,
+and graph layout through `page_components.py`. Activity and Projects adapters
+continue to own their independently validated snapshot loads, aggregate card
+calculations, text about data provenance, and callbacks. The declarative
+`layers` policy is a contract for future figure-layer extraction; it is not yet
+the runtime dispatcher for overlays.
 
 ## Behaviors to preserve
 
@@ -78,7 +79,20 @@ preserve source-specific Y-axis scaling; never derive missing historical data
 or treat private launch titles as public; and preserve the existing behavior
 when optional snapshot data is absent.
 
-## Phase 1 testing strategy
+## Phase 2 extraction boundaries
+
+- `page_components.py`: reusable page skeleton, cards, controls, and missing-data
+  messages, all built from an immutable `PageSpec` without source I/O.
+- `ui.layout_for()` and `projects_ui.projects_layout()`: small source adapters
+  which supply already validated snapshots and source-specific text.
+- `chart_geometry.py`: shared, Dash-free calendar-axis labels, tick selection,
+  partial-bucket widths, and fractional launch positions; Projects no longer
+  imports private functions from the activity UI.
+- Figure builders remain independent, retaining their callbacks and browser
+  zoom contract. Activity optional traces now honor `PageSpec.layers` for
+  anomaly diamonds, project launch markers, and the trailing average.
+
+## Phase 1 characterization and ongoing regression testing
 
 - `tests/test_page_specs.py` runs without Dash and verifies the page contracts,
   permitted overlays, options, defaults, and consistency with the actual KPI

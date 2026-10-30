@@ -26,14 +26,22 @@ See Also
 from __future__ import annotations
 
 import json
-from datetime import datetime, timedelta, timezone
+from datetime import timedelta
 from typing import Any, Callable
 
 import plotly.graph_objects as go
-from dash import Input, Output, callback, dcc, html
+from dash import Input, Output, callback
 from dash.development.base_component import Component
 
+from zooniverse_dashboard.chart_geometry import (
+    display_date,
+    period_bar_geometry,
+    period_label,
+    period_ticks,
+)
 from zooniverse_dashboard.collection_config import effective_history_days
+from zooniverse_dashboard.page_components import build_metric_page, missing_snapshot_page
+from zooniverse_dashboard.page_specs import PAGE_SPECS
 from zooniverse_dashboard.project_launches import LaunchSnapshot, load_launches
 from zooniverse_dashboard.projects_data import (
     INTERVALS,
@@ -43,27 +51,6 @@ from zooniverse_dashboard.projects_data import (
     project_metrics,
     viewport_start,
 )
-from zooniverse_dashboard.ui import (
-    _display_date,
-    _period_bar_geometry,
-    _period_label,
-    _period_ticks,
-)
-
-WINDOW_OPTIONS: list[dict[str, str]] = [
-    {"label": "Last 12 months", "value": "12"},
-    {"label": "Last 3 years", "value": "36"},
-    {"label": "Last 5 years", "value": "60"},
-    {"label": "All available", "value": "all"},
-]
-INTERVAL_OPTIONS: list[dict[str, str]] = [
-    {"label": "Month", "value": "monthly"},
-    {"label": "Year", "value": "yearly"},
-]
-PLOT_OPTIONS: list[dict[str, str]] = [
-    {"label": "Line", "value": "line"},
-    {"label": "Bars", "value": "bars"},
-]
 
 
 def projects_figure(
@@ -120,13 +107,12 @@ def projects_figure(
     shown = bins[first_index:]
     peak = max((bucket.count for bucket in shown), default=0)
     customdata = [
-        [_display_date(bucket.first_observed), _display_date(bucket.last_observed)]
-        for bucket in bins
+        [display_date(bucket.first_observed), display_date(bucket.last_observed)] for bucket in bins
     ]
     fig = go.Figure()
-    labels = [_period_label(bucket, interval) for bucket in bins]
+    labels = [period_label(bucket, interval) for bucket in bins]
     if plot_type == "bars":
-        geometry = [_period_bar_geometry(bucket, i, interval) for i, bucket in enumerate(bins)]
+        geometry = [period_bar_geometry(bucket, i, interval) for i, bucket in enumerate(bins)]
         fig.add_trace(
             go.Bar(
                 x=[center for center, _ in geometry],
@@ -141,7 +127,7 @@ def projects_figure(
                 ),
             )
         )
-        tickvals, ticktext = _period_ticks(first_index, last_index, labels)
+        tickvals, ticktext = period_ticks(first_index, last_index, labels)
         xaxis = {
             "type": "linear",
             "tickmode": "array",
@@ -215,189 +201,53 @@ def projects_figure(
 
 
 def projects_layout() -> Component:
-    """Build the Projects page from the latest saved launch snapshot.
+    """Render the Projects page with the same configurable page skeleton.
 
-    Create summary cards, freshness/configuration notices and a monthly/yearly
-    chart with view and plot-style controls. Missing or invalid JSON results in a
-    friendly placeholder rather than an exception; rendering never queries
-    Panoptes or any other upstream service.
+    Unlike the activity adapters, this page reads sparse approved launches
+    and computes five launch-specific summary metrics. It shares layout and
+    controls but retains its independent figure and snapshot semantics.
 
     Returns
     -------
     dash.development.base_component.Component
-        Full Projects layout, or a notice if no usable launch snapshot exists.
-
-    See Also
-    --------
-    :func:`zooniverse_dashboard.project_launches.load_launches`
-        Validate and read ``project_launches.json``.
-    :func:`zooniverse_dashboard.projects_data.project_metrics`
-        Calculate current and prior-period summary card counts.
+        Projects page or a missing-launch-snapshot notice.
     """
+    spec = PAGE_SPECS["projects"]
     try:
         snapshot = load_launches()
     except (OSError, ValueError, TypeError, KeyError, json.JSONDecodeError):
-        return html.Div(
-            [
-                html.Div("PLATFORM METRICS · PANOPTES", className="kicker"),
-                html.H1("Projects"),
-                html.Div(
-                    "No valid project launch snapshot yet. Click Refresh data to collect "
-                    "approved launch dates from Panoptes.",
-                    className="notice",
-                ),
-            ]
+        return missing_snapshot_page(
+            spec,
+            "No valid project launch snapshot yet. Click Refresh data to collect "
+            "approved launch dates from Panoptes.",
+            include_provider=True,
         )
-    now = datetime.now(timezone.utc)
-    stale_days = max(0, (now.date() - snapshot.as_of).days)
     try:
         configured_days = effective_history_days()
     except ValueError:
         configured_days = None
-    cards: list[Component] = []
-    for metric in project_metrics(snapshot):
-        range_label = (
-            f"{metric.start.isoformat()} – {metric.end.isoformat()} UTC"
-            if metric.start <= metric.end
-            else "No completed days"
-        )
-        cards.append(
-            html.Div(
-                [
-                    html.Div(metric.label, className="metric-title"),
-                    html.Div(
-                        "—" if metric.count is None else f"{metric.count:,}",
-                        className="metric-value",
-                    ),
-                    html.Div(range_label, className="metric-period"),
-                    html.Div(
-                        "Insufficient historical coverage" if metric.count is None else "",
-                        className="metric-pending",
-                    ),
-                ],
-                className="metric-card registration-metric",
-            )
-        )
-    return html.Div(
-        [
-            html.Div("PLATFORM METRICS · PANOPTES", className="kicker"),
-            html.H1("Projects"),
-            html.P(
-                "Approved Zooniverse project launches per calendar month or year (UTC). "
-                "Counts reflect recorded launch dates, not project creation dates. "
-                "Current and boundary periods may be partial.",
-                className="lead",
-            ),
-            html.Div(
-                [
-                    html.Strong("Snapshot last modified: "),
-                    snapshot.last_modified.strftime("%Y-%m-%d %H:%M:%S UTC"),
-                    " · Available data: ",
-                    snapshot.first.isoformat(),
-                    " – ",
-                    snapshot.last.isoformat(),
-                    " · Collected range: ",
-                    (
-                        "All available"
-                        if snapshot.history_days == 0
-                        else f"Last {snapshot.history_days} days"
-                    ),
-                ],
-                className="notice",
-            ),
-            (
-                html.Div(
-                    "Date-limit setting has changed. Refresh data to apply the new window.",
-                    className="notice notice-warning",
-                )
-                if configured_days is None or configured_days != snapshot.history_days
-                else None
-            ),
-            (
-                html.Div(
-                    f"Launch data are {stale_days} completed UTC day(s) behind. "
-                    "Use Refresh data above to update them.",
-                    className="notice notice-warning",
-                )
-                if stale_days
-                else None
-            ),
-            html.Section(cards, className="registration-metrics"),
-            html.Section(
-                [
-                    html.Div("PROJECT LAUNCHES", className="section-label"),
-                    html.H2("Project launch history"),
-                    html.Div(
-                        [
-                            html.Div(
-                                [
-                                    html.Label("Visible time window", htmlFor="projects-window"),
-                                    dcc.Dropdown(
-                                        id="projects-window",
-                                        options=WINDOW_OPTIONS,
-                                        value="36",
-                                        clearable=False,
-                                        searchable=False,
-                                        style={"minWidth": "220px"},
-                                    ),
-                                ],
-                                className="registration-date-control",
-                            ),
-                            html.Div(
-                                [
-                                    html.Label("Group by", htmlFor="projects-interval"),
-                                    dcc.RadioItems(
-                                        id="projects-interval",
-                                        options=INTERVAL_OPTIONS,
-                                        value="monthly",
-                                        inline=True,
-                                        className="history-radio-group",
-                                    ),
-                                ],
-                                className="registration-date-control",
-                            ),
-                            html.Div(
-                                [
-                                    html.Label("Chart type", htmlFor="projects-plot-type"),
-                                    dcc.RadioItems(
-                                        id="projects-plot-type",
-                                        options=PLOT_OPTIONS,
-                                        value="bars",
-                                        inline=True,
-                                        className="history-radio-group",
-                                    ),
-                                ],
-                                className="registration-date-control",
-                            ),
-                        ],
-                        className="registration-filters",
-                    ),
-                    dcc.Loading(
-                        dcc.Graph(
-                            id="projects-graph",
-                            className="history-graph",
-                            config={
-                                "displaylogo": False,
-                                "responsive": True,
-                                "scrollZoom": False,
-                                "modeBarButtonsToRemove": ["select2d", "lasso2d"],
-                            },
-                            style={"height": "500px"},
-                        ),
-                        type="circle",
-                    ),
-                    html.P(
-                        "Zoom, pan and use the range slider to inspect the launch history. "
-                        "The selected UTC time interval is shared with Users, "
-                        "Classifications and Talk in this browser tab. "
-                        "Periods with no launches appear as zero; boundary periods are "
-                        "not extrapolated to complete months or years.",
-                        className="muted",
-                    ),
-                ],
-                className="section-card",
-            ),
-        ]
+    return build_metric_page(
+        spec,
+        snapshot,
+        project_metrics(snapshot),
+        configured_days=configured_days,
+        lead=(
+            "Approved Zooniverse project launches per calendar month or year (UTC). "
+            "Counts reflect recorded launch dates, not project creation dates. "
+            "Current and boundary periods may be partial."
+        ),
+        eyebrow="PROJECT LAUNCHES",
+        footnote=(
+            "Zoom, pan and use the range slider to inspect the launch history. "
+            "The selected UTC time interval is shared with Users, "
+            "Classifications and Talk in this browser tab. "
+            "Periods with no launches appear as zero; boundary periods are "
+            "not extrapolated to complete months or years."
+        ),
+        mismatch_message="Date-limit setting has changed. Refresh data to apply the new window.",
+        stale_prefix="Launch data are ",
+        stale_suffix=" completed UTC day(s) behind. Use Refresh data above to update them.",
+        uppercase_provider=True,
     )
 
 

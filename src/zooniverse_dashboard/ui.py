@@ -30,270 +30,105 @@ See Also
 from __future__ import annotations
 
 import json
-from datetime import date, datetime, timedelta, timezone
+from datetime import date, timedelta
 from html import escape
 from typing import Any, Callable
 from urllib.parse import parse_qs, urlencode
 
 import plotly.graph_objects as go
-from dash import Input, Output, callback, ctx, dcc, html, no_update
+from dash import Input, Output, callback, ctx, no_update
 from dash.development.base_component import Component
 
 from zooniverse_dashboard.anomalies.catalog import event_by_id, visible_events
 from zooniverse_dashboard.chart_data import ChartBucket, bucket_start, group_daily
+from zooniverse_dashboard.chart_geometry import (
+    display_date,
+    next_bucket_start,
+    period_bar_geometry,
+    period_label,
+    period_position,
+    period_ticks,
+)
 from zooniverse_dashboard.collection_config import effective_history_days
+from zooniverse_dashboard.page_components import build_metric_page, missing_snapshot_page
+from zooniverse_dashboard.page_specs import PAGE_SPECS
 from zooniverse_dashboard.periods import calendar_periods, visible_date_range
 from zooniverse_dashboard.project_launches import LaunchSnapshot, load_launches
 from zooniverse_dashboard.snapshots import Snapshot, load_snapshot
 
-WINDOW_OPTIONS: list[dict[str, str]] = [
-    {"label": f"Last {days} days", "value": str(days)} for days in (7, 28, 90, 180, 365)
-] + [{"label": "All available", "value": "all"}]
-
-PAGE_CONFIG: dict[str, tuple[str, str, str, str]] = {
-    "users": ("User registrations", "Registration history", "registrations", "Panoptes"),
-    "classifications": ("Classifications", "Classification history", "classifications", "ERAS"),
-    "talks": ("Talk activity", "Talk comment history", "comments", "ERAS"),
-}
-
-INTERVAL_OPTIONS: list[dict[str, str]] = [
-    {"label": label, "value": value}
-    for value, label in (
-        ("daily", "Day"),
-        ("weekly", "Week"),
-        ("monthly", "Month"),
-        ("yearly", "Year"),
-    )
-]
-PLOT_OPTIONS: list[dict[str, str]] = [
-    {"label": "Line", "value": "line"},
-    {"label": "Bars", "value": "bars"},
-]
-
 
 def layout_for(source: str) -> Component:
-    """Build a snapshot-driven activity page for one supported metric.
+    """Render an activity page via its immutable page specification.
 
-    Render summary cards, freshness warnings, and chart controls. A missing or
-    invalid snapshot produces a message directing the operator to refresh data;
-    otherwise no network requests occur during page construction. The chart's
-    callbacks are registered separately by :func:`register_history_callback`.
+    The source adapter remains responsible for loading a continuous daily
+    snapshot and calculating calendar summaries. All shared Dash structure is
+    rendered by :func:`zooniverse_dashboard.page_components.build_metric_page`.
 
     Parameters
     ----------
     source : str
-        One of ``users``, ``classifications`` or ``talks`` in ``PAGE_CONFIG``.
+        Registered activity source (users, classifications, or talks).
 
     Returns
     -------
     dash.development.base_component.Component
-        Dash page layout including summary cards or a missing-snapshot notice.
+        Full page or a missing-snapshot notice.
 
     Raises
     ------
     KeyError
-        If ``source`` is not a registered activity page.
-
-    See Also
-    --------
-    :func:`zooniverse_dashboard.snapshots.load_snapshot`
-        Validate and load a saved activity history.
+        If the source does not describe an activity page.
     """
-    title, chart_title, noun, provider = PAGE_CONFIG[source]
+    spec = PAGE_SPECS[source]
+    if spec.snapshot_kind != "activity":
+        raise KeyError(source)
     try:
         snapshot = load_snapshot(source)
     except (OSError, ValueError, TypeError, KeyError, json.JSONDecodeError):
-        return html.Div(
-            [
-                html.Div("PLATFORM METRICS", className="kicker"),
-                html.H1(title),
-                html.Div(
-                    "No valid aggregate snapshot yet. Click Refresh data to initialize the "
-                    "configured history. An oversized or invalid source response is rejected.",
-                    className="notice",
-                ),
-            ]
+        return missing_snapshot_page(
+            spec,
+            "No valid aggregate snapshot yet. Click Refresh data to initialize the "
+            "configured history. An oversized or invalid source response is rejected.",
+            include_provider=False,
         )
     try:
         configured_days = effective_history_days()
     except ValueError:
         configured_days = None
-    now = datetime.now(timezone.utc)
-    stale_days = max(0, (now.date() - snapshot.as_of).days)
-    cards: list[Component] = []
-    for period in calendar_periods(snapshot):
-        range_label = (
-            f"{period.start.isoformat()} – {period.end.isoformat()} UTC"
-            if period.start <= period.end
-            else "No completed days"
-        )
-        cards.append(
-            html.Div(
-                [
-                    html.Div(period.label, className="metric-title"),
-                    html.Div(
-                        "—" if period.count is None else f"{period.count:,}",
-                        className="metric-value",
-                    ),
-                    html.Div(range_label, className="metric-period"),
-                    html.Div(
-                        "Insufficient historical coverage" if period.count is None else "",
-                        className="metric-pending",
-                    ),
-                ],
-                className="metric-card registration-metric",
-            )
-        )
-    return html.Div(
-        [
-            dcc.Location(id=f"{source}-route", refresh=True),
-            html.Div("PLATFORM METRICS · " + provider, className="kicker"),
-            html.H1(title),
-            html.P(
-                "Daily aggregate snapshots, viewable as day/week/month/year totals. "
-                "Weeks begin Monday; all calendar periods use UTC. "
-                "Current and boundary periods may be partial.",
-                className="lead",
-            ),
-            html.Div(
-                [
-                    html.Strong("Snapshot last modified: "),
-                    snapshot.last_modified.strftime("%Y-%m-%d %H:%M:%S UTC"),
-                    " · Available data: ",
-                    snapshot.first.isoformat(),
-                    " – ",
-                    snapshot.last.isoformat(),
-                    " · Collected range: ",
-                    (
-                        "All available"
-                        if snapshot.history_days == 0
-                        else (
-                            f"Last {snapshot.history_days} days"
-                            if snapshot.history_days is not None
-                            else "Legacy / unknown"
-                        )
-                    ),
-                ],
-                className="notice",
-            ),
-            (
-                html.Div(
-                    "Date-limit setting has changed (or snapshot predates this feature). "
-                    "Refresh data to apply the selected historical window.",
-                    className="notice notice-warning",
-                )
-                if configured_days is None or snapshot.history_days != configured_days
-                else None
-            ),
-            (
-                html.Div(
-                    f"Data are {stale_days} completed UTC day(s) behind. "
-                    "Use Refresh data above to update this source.",
-                    className="notice notice-warning",
-                )
-                if stale_days
-                else None
-            ),
-            html.Section(cards, className="registration-metrics"),
-            html.Section(
-                [
-                    html.Div("HISTORICAL ACTIVITY", className="section-label"),
-                    html.H2(chart_title),
-                    html.Div(
-                        [
-                            html.Div(
-                                [
-                                    html.Label("Visible time window", htmlFor=f"{source}-window"),
-                                    dcc.Dropdown(
-                                        id=f"{source}-window",
-                                        options=WINDOW_OPTIONS,
-                                        value="90",
-                                        clearable=False,
-                                        searchable=False,
-                                        style={"minWidth": "220px"},
-                                    ),
-                                ],
-                                className="registration-date-control",
-                            ),
-                            html.Div(
-                                [
-                                    html.Label("Group by", htmlFor=f"{source}-interval"),
-                                    dcc.RadioItems(
-                                        id=f"{source}-interval",
-                                        options=INTERVAL_OPTIONS,
-                                        value="daily",
-                                        inline=True,
-                                        className="history-radio-group",
-                                    ),
-                                ],
-                                className="registration-date-control",
-                            ),
-                            html.Div(
-                                [
-                                    html.Label("Chart type", htmlFor=f"{source}-plot-type"),
-                                    dcc.RadioItems(
-                                        id=f"{source}-plot-type",
-                                        options=PLOT_OPTIONS,
-                                        value="line",
-                                        inline=True,
-                                        className="history-radio-group",
-                                    ),
-                                ],
-                                className="registration-date-control",
-                            ),
-                        ],
-                        className="registration-filters",
-                    ),
-                    dcc.Loading(
-                        dcc.Graph(
-                            id=f"{source}-graph",
-                            className="history-graph",
-                            config={
-                                "displaylogo": False,
-                                "responsive": True,
-                                "scrollZoom": False,
-                                "modeBarButtonsToRemove": ["select2d", "lasso2d"],
-                            },
-                            style={"height": "500px"},
-                        ),
-                        type="circle",
-                    ),
-                    html.P(
-                        "Drag a rectangle to zoom both axes. Choose Pan in the chart toolbar "
-                        "to move across dates, or use the range slider. The vertical scale "
-                        "adjusts to the visible data when panning or changing the date range. "
-                        "Daily views show clickable anomaly diamonds; other intervals show "
-                        "calendar totals without moving the daily anomaly dates. "
-                        "Violet triangles along the baseline mark approved Panoptes project "
-                        "launches on their recorded dates (hover for UTC dates and public titles). "
-                        "On grouped bar charts, equal-width bars represent calendar periods "
-                        "and launch positions indicate the day within each period. "
-                        "The selected date range is shared across charts in this browser tab; "
-                        "changing the Visible time window preset resets it.",
-                        className="muted",
-                    ),
-                ],
-                className="section-card",
-            ),
-        ]
+    return build_metric_page(
+        spec,
+        snapshot,
+        calendar_periods(snapshot),
+        configured_days=configured_days,
+        lead=(
+            "Daily aggregate snapshots, viewable as day/week/month/year totals. "
+            "Weeks begin Monday; all calendar periods use UTC. "
+            "Current and boundary periods may be partial."
+        ),
+        eyebrow="HISTORICAL ACTIVITY",
+        footnote=(
+            "Drag a rectangle to zoom both axes. Choose Pan in the chart toolbar "
+            "to move across dates, or use the range slider. The vertical scale "
+            "adjusts to the visible data when panning or changing the date range. "
+            "Daily views show clickable anomaly diamonds; other intervals show "
+            "calendar totals without moving the daily anomaly dates. "
+            "Violet triangles along the baseline mark approved Panoptes project "
+            "launches on their recorded dates (hover for UTC dates and public titles). "
+            "On grouped bar charts, equal-width bars represent calendar periods "
+            "and launch positions indicate the day within each period. "
+            "The selected date range is shared across charts in this browser tab; "
+            "changing the Visible time window preset resets it."
+        ),
+        mismatch_message=(
+            "Date-limit setting has changed (or snapshot predates this feature). "
+            "Refresh data to apply the selected historical window."
+        ),
+        stale_prefix="Data are ",
+        stale_suffix=(
+            " completed UTC day(s) behind. Use Refresh data above to update this source."
+        ),
+        route=True,
     )
-
-
-def _display_date(day: date) -> str:
-    """Format a calendar day consistently in plot hover text.
-
-    Parameters
-    ----------
-    day : datetime.date
-        Calendar day already interpreted as UTC by the caller.
-
-    Returns
-    -------
-    str
-        English abbreviated weekday, day, month and year, such as
-        ``Mon 25 May 2026``.
-    """
-    return day.strftime("%a %d %b %Y")
 
 
 def _launch_hover(day: date, count: int, names: tuple[str, ...]) -> str:
@@ -330,164 +165,7 @@ def _launch_hover(day: date, count: int, names: tuple[str, ...]) -> str:
         titles += f"<br>… and {len(names) - 8} more public titles"
     if len(names) < count:
         titles += "<br>Some project titles are private or unavailable"
-    return f"{_display_date(day)} UTC<br>{label}{titles}"
-
-
-_PERIOD_BAR_WIDTH: float = 0.82
-
-
-def _next_bucket_start(start: date, interval: str) -> date:
-    """Compute the exclusive end of a complete calendar bucket.
-
-    Parameters
-    ----------
-    start : datetime.date
-        First date of the bucket (Monday, first of month, or first of year).
-    interval : str
-        One of ``weekly``, ``monthly``, or ``yearly``.
-
-    Returns
-    -------
-    datetime.date
-        First day of the following calendar period.
-
-    Raises
-    ------
-    ValueError
-        If ``interval`` is not a supported grouped-bar interval.
-    """
-    if interval == "weekly":
-        return start + timedelta(days=7)
-    if interval == "monthly":
-        if start.month == 12:
-            return date(start.year + 1, 1, 1)
-        return date(start.year, start.month + 1, 1)
-    if interval == "yearly":
-        return date(start.year + 1, 1, 1)
-    raise ValueError("Only grouped bars use indexed calendar buckets")
-
-
-def _period_label(bucket: ChartBucket, interval: str) -> str:
-    """Produce a compact calendar label for a grouped bar axis.
-
-    Parameters
-    ----------
-    bucket : :class:`zooniverse_dashboard.chart_data.ChartBucket`
-        Calendar bucket whose start identifies the displayed period.
-    interval : str
-        Grouped interval: ``weekly``, ``monthly`` or ``yearly``.
-
-    Returns
-    -------
-    str
-        Week-start date, abbreviated month plus year, or a four-digit year.
-
-    Raises
-    ------
-    ValueError
-        If ``interval`` is not a supported grouped-bar interval.
-    """
-    if interval == "weekly":
-        return bucket.start.strftime("%d %b '%y")
-    if interval == "monthly":
-        return bucket.start.strftime("%b %Y")
-    if interval == "yearly":
-        return str(bucket.start.year)
-    raise ValueError("Only grouped bars use period labels")
-
-
-def _period_position(day: date, bucket: ChartBucket, index: int, interval: str) -> float:
-    """Map one launch day to a fractional coordinate inside a calendar slot.
-
-    Weekly, monthly and yearly bars occupy equally spaced numeric slots. The
-    launch's position within the slot is proportional to elapsed calendar days,
-    including leap-year months and years.
-
-    Parameters
-    ----------
-    day : datetime.date
-        Launch date within the supplied bucket.
-    bucket : :class:`zooniverse_dashboard.chart_data.ChartBucket`
-        Bucket containing the launch day.
-    index : int
-        Zero-based numeric X-coordinate of the corresponding period.
-    interval : str
-        Grouped-bar interval.
-
-    Returns
-    -------
-    float
-        Fractional numeric X-coordinate within the bar's allotted slot.
-
-    Raises
-    ------
-    ValueError
-        If the interval is unsupported for grouped bars.
-    """
-    span = (_next_bucket_start(bucket.start, interval) - bucket.start).days
-    elapsed = (day - bucket.start).days
-    return index + _PERIOD_BAR_WIDTH * ((elapsed + 0.5) / span - 0.5)
-
-
-def _period_bar_geometry(bucket: ChartBucket, index: int, interval: str) -> tuple[float, float]:
-    """Calculate bar center and proportional observed width in a period slot.
-
-    A partial first or last bucket occupies only the fraction of its month,
-    week or year covered by the snapshot; the unobserved portion remains empty.
-
-    Parameters
-    ----------
-    bucket : :class:`zooniverse_dashboard.chart_data.ChartBucket`
-        Calendar bucket with first and last observed days.
-    index : int
-        Integer slot index on the numeric X-axis.
-    interval : str
-        Weekly, monthly or yearly period selection.
-
-    Returns
-    -------
-    tuple[float, float]
-        Numeric bar center and width, in period-slot units.
-
-    Raises
-    ------
-    ValueError
-        If ``interval`` is not a grouped-bar interval.
-    """
-    span = (_next_bucket_start(bucket.start, interval) - bucket.start).days
-    first = (bucket.first_observed - bucket.start).days
-    observed = (bucket.last_observed - bucket.first_observed).days + 1
-    center = index + _PERIOD_BAR_WIDTH * ((first + observed / 2) / span - 0.5)
-    return center, _PERIOD_BAR_WIDTH * observed / span
-
-
-def _period_ticks(
-    first: int, last: int, labels: list[str], *, max_ticks: int = 10
-) -> tuple[list[int], list[str]]:
-    """Select sparse initial tick locations from indexed calendar labels.
-
-    Browser-side navigation can later update tick density as the view changes.
-    The returned indexes are clipped to the supplied label sequence.
-
-    Parameters
-    ----------
-    first : int
-        First visible zero-based period index.
-    last : int
-        Last visible zero-based period index, inclusive.
-    labels : list[str]
-        All available calendar-period axis labels.
-    max_ticks : int, optional
-        Maximum target number of initial labels, default 10.
-
-    Returns
-    -------
-    tuple[list[int], list[str]]
-        Selected numeric tick positions and their matching text labels.
-    """
-    step = max(1, (last - first + 1 + max_ticks - 1) // max_ticks)
-    indexes = list(range(max(0, first), min(len(labels) - 1, last) + 1, step))
-    return indexes, [labels[index] for index in indexes]
+    return f"{display_date(day)} UTC<br>{label}{titles}"
 
 
 def history_figure(
@@ -546,6 +224,7 @@ def history_figure(
     """
     if plot_type not in {"line", "bars"}:
         raise ValueError("Unsupported chart type")
+    spec = PAGE_SPECS[snapshot.source]
     bins: list[ChartBucket] = group_daily(snapshot.daily, interval)
     visible_first, visible_last = visible_date_range(
         first=snapshot.first, last=snapshot.last, window=window
@@ -561,7 +240,7 @@ def history_figure(
     displayed_last = max((b.last_observed for b in shown), default=end)
     indexed_bars = plot_type == "bars" and interval != "daily"
     bar_geometry = (
-        [_period_bar_geometry(bucket, index, interval) for index, bucket in enumerate(bins)]
+        [period_bar_geometry(bucket, index, interval) for index, bucket in enumerate(bins)]
         if indexed_bars
         else []
     )
@@ -571,11 +250,9 @@ def history_figure(
         else [b.center.isoformat() for b in bins]
     )
     y = [b.count for b in bins]
-    hover_periods = [
-        [_display_date(b.first_observed), _display_date(b.last_observed)] for b in bins
-    ]
+    hover_periods = [[display_date(b.first_observed), display_date(b.last_observed)] for b in bins]
     unit = {"daily": "day", "weekly": "week", "monthly": "month", "yearly": "year"}[interval]
-    name = PAGE_CONFIG[snapshot.source][2].capitalize()
+    name = spec.count_noun.capitalize()
     fig = go.Figure()
     period_hover = (
         "%{customdata[0]} UTC<br>Total: %{y:,}<extra></extra>"
@@ -611,7 +288,7 @@ def history_figure(
                 hovertemplate=period_hover,
             )
         )
-        if interval == "daily":
+        if spec.has_layer("trailing_average", interval=interval, plot_type=plot_type):
             trailing = [sum(y[max(0, i - 6) : i + 1]) / min(i + 1, 7) for i in range(len(y))]
             fig.add_trace(
                 go.Scatter(
@@ -623,7 +300,7 @@ def history_figure(
                     hovertemplate="%{x|%a %d %b %Y} UTC: %{y:,.0f}<extra></extra>",
                 )
             )
-    if interval == "daily":
+    if spec.has_layer("anomalies", interval=interval, plot_type=plot_type):
         events, _statuses = visible_events()
         row_by_date = dict(snapshot.daily)
         for direction, color, title in (
@@ -646,9 +323,9 @@ def history_figure(
                         customdata=[
                             [
                                 v["id"],
-                                _display_date(date.fromisoformat(v["start"])),
-                                _display_date(date.fromisoformat(v["end"])),
-                                _display_date(date.fromisoformat(v["detected"])),
+                                display_date(date.fromisoformat(v["start"])),
+                                display_date(date.fromisoformat(v["end"])),
+                                display_date(date.fromisoformat(v["detected"])),
                             ]
                             for v in selected
                         ],
@@ -664,7 +341,9 @@ def history_figure(
     # scatter after the bars makes its saturated violet markers visible over
     # teal bar fills, without the white borders that merged into blobs when
     # many projects launched close together. Calendar X positions stay exact.
-    if launches is not None:
+    if launches is not None and spec.has_layer(
+        "project_launches", interval=interval, plot_type=plot_type
+    ):
         by_period = {bucket.start: (index, bucket) for index, bucket in enumerate(bins)}
         marker_days: list[tuple[date, int]] = [
             (day, count)
@@ -676,7 +355,7 @@ def history_figure(
             for day, _count in marker_days:
                 if indexed_bars:
                     index, bucket = by_period[bucket_start(day, interval)]
-                    marker_x.append(_period_position(day, bucket, index, interval))
+                    marker_x.append(period_position(day, bucket, index, interval))
                 else:
                     marker_x.append(day.isoformat())
             fig.add_trace(
@@ -702,7 +381,7 @@ def history_figure(
                     hovertemplate="%{customdata}<extra></extra>",
                 )
             )
-    if interval == "daily" and plot_type == "line":
+    if spec.has_layer("trailing_average", interval=interval, plot_type=plot_type):
         trailing_in_view = [
             value for (bucket, value) in zip(bins, trailing) if begin <= bucket.start <= end
         ]
@@ -711,7 +390,7 @@ def history_figure(
     # retain their fractional calendar day *inside* each category. All line
     # plots and daily bar plots continue using the true UTC date axis.
     if indexed_bars:
-        labels = [_period_label(bucket, interval) for bucket in bins]
+        labels = [period_label(bucket, interval) for bucket in bins]
         first_index = next(
             (index for index, bucket in enumerate(bins) if bucket.last_observed >= begin), 0
         )
@@ -719,7 +398,7 @@ def history_figure(
             (index for index in range(len(bins) - 1, -1, -1) if bins[index].first_observed <= end),
             len(bins) - 1,
         )
-        tickvals, ticktext = _period_ticks(first_index, last_index, labels)
+        tickvals, ticktext = period_ticks(first_index, last_index, labels)
         xaxis = {
             "type": "linear",
             "tickmode": "array",
@@ -762,7 +441,7 @@ def history_figure(
         ),
         "period_bounds": (
             [bucket.start.isoformat() for bucket in bins]
-            + [_next_bucket_start(bins[-1].start, interval).isoformat()]
+            + [next_bucket_start(bins[-1].start, interval).isoformat()]
             if indexed_bars and bins
             else None
         ),
@@ -810,7 +489,7 @@ def _load_optional_launches(source: str) -> LaunchSnapshot | None:
     :func:`zooniverse_dashboard.project_launches.load_launches`
         Load and validate the locally stored launch data.
     """
-    if source not in PAGE_CONFIG:
+    if source not in PAGE_SPECS or PAGE_SPECS[source].snapshot_kind != "activity":
         return None
     try:
         return load_launches()
