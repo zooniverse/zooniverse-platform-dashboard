@@ -104,9 +104,7 @@ def read_catalog(*, root: Path | None = None) -> dict[str, Any] | None:
         return None
 
 
-def visible_events(
-    *, root: Path | None = None
-) -> tuple[list[dict[str, Any]], dict[str, str]]:
+def visible_events(*, root: Path | None = None) -> tuple[list[dict[str, Any]], dict[str, str]]:
     """Return episodes whose source analysis matches its current snapshot.
 
     Load each activity snapshot via

@@ -114,9 +114,7 @@ def refresh_and_rebuild(
         }
 
     analysis: dict[str, Any] = catalog["sources"]
-    anomaly_ok: bool = all(
-        analysis.get(source, {}).get("status") == "ok" for source in SOURCES
-    )
+    anomaly_ok: bool = all(analysis.get(source, {}).get("status") == "ok" for source in SOURCES)
     state: str = "ok" if refresh["state"] == "ok" and anomaly_ok else "partial_failure"
     announce(
         "Refresh and anomaly analysis complete"

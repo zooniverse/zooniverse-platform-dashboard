@@ -849,9 +849,7 @@ def register_history_callback(source: str) -> Callable[..., go.Figure]:
         Input(f"{source}-interval", "value"),
         Input(f"{source}-plot-type", "value"),
     )
-    def update(
-        search: str | None, window: str, interval: str, plot_type: str
-    ) -> go.Figure:
+    def update(search: str | None, window: str, interval: str, plot_type: str) -> go.Figure:
         """Regenerate an activity chart after a route or control change.
 
         A route's ``episode`` parameter focuses an anomaly only when navigation or

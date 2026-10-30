@@ -71,6 +71,7 @@ architecture
 anomaly_detection
 project_launch_markers
 projects
+page_refactoring
 operations
 privacy
 api
