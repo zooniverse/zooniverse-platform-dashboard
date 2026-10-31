@@ -25,6 +25,8 @@ See Also
     Calendar-bucket aggregation for activity counts.
 :func:`zooniverse_dashboard.projects_ui.projects_figure`
     Dedicated monthly/yearly projects chart.
+:mod:`zooniverse_dashboard.figure_layout`
+    Shared axes, zoom metadata, and Plotly layout defaults.
 """
 
 from __future__ import annotations
@@ -43,13 +45,17 @@ from zooniverse_dashboard.anomalies.catalog import event_by_id, visible_events
 from zooniverse_dashboard.chart_data import ChartBucket, bucket_start, group_daily
 from zooniverse_dashboard.chart_geometry import (
     display_date,
-    next_bucket_start,
     period_bar_geometry,
     period_label,
     period_position,
-    period_ticks,
 )
 from zooniverse_dashboard.collection_config import effective_history_days
+from zooniverse_dashboard.figure_layout import (
+    apply_history_layout,
+    history_zoom_metadata,
+    indexed_bar_axis,
+    utc_date_axis,
+)
 from zooniverse_dashboard.page_components import build_metric_page, missing_snapshot_page
 from zooniverse_dashboard.page_specs import PAGE_SPECS
 from zooniverse_dashboard.periods import calendar_periods, visible_date_range
@@ -398,72 +404,47 @@ def history_figure(
             (index for index in range(len(bins) - 1, -1, -1) if bins[index].first_observed <= end),
             len(bins) - 1,
         )
-        tickvals, ticktext = period_ticks(first_index, last_index, labels)
-        xaxis = {
-            "type": "linear",
-            "tickmode": "array",
-            "tickvals": tickvals,
-            "ticktext": ticktext,
-            "tickangle": -30,
-            "automargin": True,
-            "range": [first_index - 0.5, last_index + 0.5],
-            "minallowed": -0.5,
-            "maxallowed": len(bins) - 0.5,
-            "rangeslider": {"visible": True, "thickness": 0.11, "yaxis": {"rangemode": "auto"}},
-        }
+        xaxis = indexed_bar_axis(bins, labels, first_index=first_index, last_index=last_index)
     else:
-        xaxis = {
-            "type": "date",
-            "hoverformat": "%a %d %b %Y",
-            "range": [
-                displayed_first.isoformat(),
-                (displayed_last + timedelta(days=1)).isoformat(),
-            ],
-            "minallowed": snapshot.first.isoformat(),
-            "maxallowed": (snapshot.last + timedelta(days=1)).isoformat(),
-            "rangeslider": {"visible": True, "thickness": 0.11, "yaxis": {"rangemode": "auto"}},
-        }
+        xaxis = utc_date_axis(
+            visible_first=displayed_first,
+            visible_last_exclusive=displayed_last + timedelta(days=1),
+            first=snapshot.first,
+            last_exclusive=snapshot.last + timedelta(days=1),
+        )
     # Store UTC period boundaries for browser-side zoom translation. Grouped
     # bars use numeric slots, but the shared viewport is always absolute time.
     # Only calendar metadata is exposed; no additional source records are read.
-    zoom_meta = {
-        "source": snapshot.source,
-        "window": window,
-        "interval": interval,
-        "plot_type": plot_type,
-        "first": snapshot.first.isoformat(),
-        "last_exclusive": (snapshot.last + timedelta(days=1)).isoformat(),
-        "focused": focus_event is not None,
-        "revision": (
+    zoom_meta = history_zoom_metadata(
+        source=snapshot.source,
+        window=window,
+        interval=interval,
+        plot_type=plot_type,
+        first=snapshot.first,
+        last_exclusive=snapshot.last + timedelta(days=1),
+        focused=focus_event is not None,
+        revision=(
             f"{snapshot.source}:{snapshot.last_modified.isoformat()}:"
             f"{window}:{interval}:{plot_type}:"
             f"{focus_event['id'] if focus_event is not None else ''}"
         ),
-        "period_bounds": (
-            [bucket.start.isoformat() for bucket in bins]
-            + [next_bucket_start(bins[-1].start, interval).isoformat()]
-            if indexed_bars and bins
-            else None
-        ),
-    }
-    fig.update_layout(
-        template="plotly_white",
-        margin={"l": 40, "r": 18, "t": 35, "b": 40},
+        bins=bins,
+        indexed_bars=indexed_bars,
+    )
+    apply_history_layout(
+        fig,
         xaxis=xaxis,
-        meta={"history_zoom": zoom_meta, **({"period_labels": labels} if indexed_bars else {})},
-        yaxis={
-            "title": f"{name} per {unit}",
-            "range": [0, max(1, max_in_view) * 1.15],
-            "rangemode": "tozero",
-        },
-        dragmode="zoom",
+        y_title=f"{name} per {unit}",
+        y_max=max_in_view,
+        zoom_metadata=zoom_meta,
+        period_labels=labels if indexed_bars else None,
         hovermode="closest" if indexed_bars else "x unified",
-        legend={"orientation": "h", "y": 1.12, "x": 0},
         uirevision=(
             f"{snapshot.source}-{snapshot.last_modified.isoformat()}-{window}"
             f"-{interval}-{plot_type}"
             + (f"-focus-{focus_event['id']}" if focus_event is not None else "")
         ),
+        horizontal_legend=True,
     )
     return fig
 

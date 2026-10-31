@@ -21,13 +21,15 @@ See Also
     Calculate period summary cards.
 :func:`zooniverse_dashboard.ui.history_figure`
     Activity chart sharing the same browser viewport.
+:mod:`zooniverse_dashboard.figure_layout`
+    Shared axes and viewport metadata used by both figure builders.
 """
 
 from __future__ import annotations
 
 import json
 from datetime import timedelta
-from typing import Any, Callable
+from typing import Callable
 
 import plotly.graph_objects as go
 from dash import Input, Output, callback
@@ -37,9 +39,14 @@ from zooniverse_dashboard.chart_geometry import (
     display_date,
     period_bar_geometry,
     period_label,
-    period_ticks,
 )
 from zooniverse_dashboard.collection_config import effective_history_days
+from zooniverse_dashboard.figure_layout import (
+    apply_history_layout,
+    history_zoom_metadata,
+    indexed_bar_axis,
+    utc_date_axis,
+)
 from zooniverse_dashboard.page_components import build_metric_page, missing_snapshot_page
 from zooniverse_dashboard.page_specs import PAGE_SPECS
 from zooniverse_dashboard.project_launches import LaunchSnapshot, load_launches
@@ -47,7 +54,6 @@ from zooniverse_dashboard.projects_data import (
     INTERVALS,
     WINDOWS,
     launch_buckets,
-    next_period,
     project_metrics,
     viewport_start,
 )
@@ -127,19 +133,7 @@ def projects_figure(
                 ),
             )
         )
-        tickvals, ticktext = period_ticks(first_index, last_index, labels)
-        xaxis = {
-            "type": "linear",
-            "tickmode": "array",
-            "tickvals": tickvals,
-            "ticktext": ticktext,
-            "tickangle": -30,
-            "automargin": True,
-            "range": [first_index - 0.5, last_index + 0.5],
-            "minallowed": -0.5,
-            "maxallowed": len(bins) - 0.5,
-            "rangeslider": {"visible": True, "thickness": 0.11, "yaxis": {"rangemode": "auto"}},
-        }
+        xaxis = indexed_bar_axis(bins, labels, first_index=first_index, last_index=last_index)
     else:
         fig.add_trace(
             go.Scatter(
@@ -156,44 +150,31 @@ def projects_figure(
                 ),
             )
         )
-        xaxis = {
-            "type": "date",
-            "hoverformat": "%a %d %b %Y",
-            "range": [begin.isoformat(), (snapshot.last + timedelta(days=1)).isoformat()],
-            "minallowed": snapshot.first.isoformat(),
-            "maxallowed": (snapshot.last + timedelta(days=1)).isoformat(),
-            "rangeslider": {"visible": True, "thickness": 0.11, "yaxis": {"rangemode": "auto"}},
-        }
-    meta: dict[str, Any] = {
-        "source": "projects",
-        "window": window,
-        "interval": interval,
-        "plot_type": plot_type,
-        "first": snapshot.first.isoformat(),
-        "last_exclusive": (snapshot.last + timedelta(days=1)).isoformat(),
-        "focused": False,
-        "revision": (
-            f"projects:{snapshot.last_modified.isoformat()}:{window}:{interval}:{plot_type}"
-        ),
-        "period_bounds": None,
-    }
-    # Numeric bar slots must publish the corresponding real calendar boundaries,
-    # so the shared viewport survives switching chart types and pages.
-    if plot_type == "bars":
-        meta["period_bounds"] = [bucket.start.isoformat() for bucket in bins] + [
-            next_period(bins[-1].start, interval).isoformat()
-        ]
-    fig.update_layout(
-        template="plotly_white",
-        margin={"l": 40, "r": 18, "t": 35, "b": 40},
+        xaxis = utc_date_axis(
+            visible_first=begin,
+            visible_last_exclusive=snapshot.last + timedelta(days=1),
+            first=snapshot.first,
+            last_exclusive=snapshot.last + timedelta(days=1),
+        )
+    meta = history_zoom_metadata(
+        source="projects",
+        window=window,
+        interval=interval,
+        plot_type=plot_type,
+        first=snapshot.first,
+        last_exclusive=snapshot.last + timedelta(days=1),
+        focused=False,
+        revision=f"projects:{snapshot.last_modified.isoformat()}:{window}:{interval}:{plot_type}",
+        bins=bins,
+        indexed_bars=plot_type == "bars",
+    )
+    apply_history_layout(
+        fig,
         xaxis=xaxis,
-        yaxis={
-            "title": f"Projects launched per {'month' if interval == 'monthly' else 'year'}",
-            "range": [0, max(1, peak) * 1.15],
-            "rangemode": "tozero",
-        },
-        meta={"history_zoom": meta, **({"period_labels": labels} if plot_type == "bars" else {})},
-        dragmode="zoom",
+        y_title=f"Projects launched per {'month' if interval == 'monthly' else 'year'}",
+        y_max=peak,
+        zoom_metadata=meta,
+        period_labels=labels if plot_type == "bars" else None,
         hovermode="closest" if plot_type == "bars" else "x unified",
         uirevision=meta["revision"],
     )

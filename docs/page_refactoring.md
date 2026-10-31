@@ -6,7 +6,8 @@ Phase 2 extracted shared presentation code. Phase 3 consolidated calendar
 aggregation and coverage checks without blending continuous activity data and
 sparse project-launch data. Phase 4 consolidated atomic filesystem operations
 and simplified refresh-source normalization. Phase 5A removes duplicated
-calendar arithmetic and documents configuration consistency.
+calendar arithmetic and documents configuration consistency. Phase 5B shares
+Plotly axis and viewport configuration without combining the figure builders.
 
 ## One page skeleton, different specifications
 
@@ -185,3 +186,24 @@ contract. Presentation labels and defaults remain the responsibility of
 
 No persisted data formats, default windows, chart types, hover content, zoom
 metadata, queries, or refresh behavior change in this phase.
+
+## Phase 5B: shared Plotly layout, independent traces
+
+`figure_layout.py` now owns the common chart presentation contract:
+
+- `indexed_bar_axis()` produces equally spaced week/month/year slots with
+  sparse ticks and snapshot-constrained range sliders.
+- `utc_date_axis()` retains a true UTC X-axis for daily bars and line plots.
+- `history_zoom_metadata()` translates indexed calendar slots to exact UTC
+  period boundaries for the browser's shared-zoom feature. Its established
+  `history_zoom` fields and the optional `period_labels` array remain stable.
+- `apply_history_layout()` supplies the Plotly theme, margins, vertical
+  scaling, and shared zoom/layout settings, with caller-specific options for
+  hover mode, revision strings, and the activity legend.
+
+The existing `ui.history_figure()` and `projects_ui.projects_figure()` still
+own trace creation, source-specific data normalization, anomaly/project
+layers, Y-axis labels, and their distinct revision strings. No callback IDs,
+JSON snapshot formats, Panoptes queries, or browser scripts change in this
+phase. Tests cover the shared helper functions and preserve all existing
+page-figure characterization checks.
