@@ -49,7 +49,7 @@ from zooniverse_dashboard.refresh import (
     load_status,
     refresh_lock,
 )
-from zooniverse_dashboard.snapshots import _atomic_publish
+from zooniverse_dashboard.storage import atomic_publish_json
 
 FORMAT: Final[str] = "ZOONIVERSE_REFRESH_JOB_V1"
 LOG: logging.Logger = logging.getLogger("zooniverse_dashboard.refresh")
@@ -226,7 +226,7 @@ def _publish(folder: Path, doc: dict[str, Any]) -> None:
     """Atomically persist a job record with a fresh update timestamp.
 
     Mutate ``doc['updated_at_utc']`` to the current UTC time before using
-    ``zooniverse_dashboard.snapshots._atomic_publish`` to publish it.
+    ``zooniverse_dashboard.storage.atomic_publish_json`` to publish it.
 
     Parameters
     ----------
@@ -248,7 +248,7 @@ def _publish(folder: Path, doc: dict[str, Any]) -> None:
         If writing the job JSON fails.
     """
     doc["updated_at_utc"] = datetime.now(timezone.utc).isoformat()
-    _atomic_publish(_path(folder), doc)
+    atomic_publish_json(_path(folder), doc)
 
 
 def load_job(root: Path | None = None) -> dict[str, Any] | None:

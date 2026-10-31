@@ -36,7 +36,8 @@ from sqlalchemy.pool import NullPool
 from sqlalchemy.sql.elements import TextClause
 
 from zooniverse_dashboard.config import data_dir, panoptes_url
-from zooniverse_dashboard.snapshots import MAX_DAYS, _atomic_publish
+from zooniverse_dashboard.snapshots import MAX_DAYS
+from zooniverse_dashboard.storage import atomic_publish_json
 
 LEGACY_FORMAT: Final[str] = "ZOONIVERSE_PROJECT_LAUNCHES_V1"
 FORMAT: Final[str] = "ZOONIVERSE_PROJECT_LAUNCHES_V2"
@@ -472,7 +473,7 @@ def publish_launches(
 
     Assemble the requested sparse daily series, validate public names and the
     coverage contract, and reject an existing corrupted or symlinked target
-    rather than overwriting it. :func:`zooniverse_dashboard.snapshots._atomic_publish`
+    rather than overwriting it. :func:`zooniverse_dashboard.storage.atomic_publish_json`
     writes the replacement atomically. Publication never creates a user-level
     data export or modifies an existing activity snapshot.
 
@@ -556,5 +557,5 @@ def publish_launches(
     _parse(doc)
     if len(json.dumps(doc, separators=(",", ":")).encode("utf-8")) > MAX_BYTES:
         raise ValueError("Project launch snapshot oversized")
-    _atomic_publish(path, doc)
+    atomic_publish_json(path, doc)
     return _parse(doc)

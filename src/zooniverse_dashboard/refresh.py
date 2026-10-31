@@ -59,10 +59,10 @@ from zooniverse_dashboard.snapshots import (
     MAX_DAYS,
     SOURCES,
     Snapshot,
-    _atomic_publish,
     publish_snapshot,
 )
 from zooniverse_dashboard.sources import fetch_panoptes
+from zooniverse_dashboard.storage import atomic_publish_json
 
 STATUS_FORMAT: Final[str] = "ZOONIVERSE_REFRESH_STATUS_V1"
 COOLDOWN_MINUTES: Final[int] = 60
@@ -199,7 +199,7 @@ def _write_status(root: Path, status: dict[str, Any]) -> None:
     """Atomically replace a validated refresh-status file.
 
     Revalidate an existing document before overwriting it. Publication uses
-    ``zooniverse_dashboard.snapshots._atomic_publish``, so readers cannot
+    ``zooniverse_dashboard.storage.atomic_publish_json``, so readers cannot
     observe a partially written JSON document. The caller constructs the status
     mapping and is responsible for its state transitions.
 
@@ -225,7 +225,67 @@ def _write_status(root: Path, status: dict[str, Any]) -> None:
     path: Path = root / "refresh_status.json"
     if path.exists():
         load_status(root)
-    _atomic_publish(path, status)
+    atomic_publish_json(path, status)
+
+
+def _fetch_activity_counts(source: str, *, through: date, days: int) -> dict[date, int]:
+    """Fetch and validate one activity stream without publishing its snapshot.
+
+    The Panoptes adapter provides date-indexed registration aggregates, while
+    the ERAS adapters provide validated response objects. ERAS full-history
+    and bounded-history responses have different boundary requirements; both
+    must reconcile their reported and observed totals before daily conversion.
+
+    Fetcher selection happens for each call, so tests and operational overrides
+    that replace a module-level fetch function still take effect.
+
+    Parameters
+    ----------
+    source : str
+        Supported activity source in :data:`zooniverse_dashboard.snapshots.SOURCES`.
+    through : datetime.date
+        Inclusive latest completed UTC day.
+    days : int
+        Requested completed-day limit; zero requests all history.
+
+    Returns
+    -------
+    dict[datetime.date, int]
+        Daily aggregate counts ready for snapshot-level validation.
+
+    Raises
+    ------
+    ValueError
+        If the source is unsupported or ERAS returns mismatched boundaries or
+        an inconsistent aggregate total.
+    """
+    if source not in SOURCES:
+        raise ValueError("Invalid analytics stream")
+    if source == "users":
+        return fetch_panoptes(through=through, history_days=days)
+
+    full_fetchers = {
+        "classifications": fetch_full_classifications,
+        "talks": fetch_full_comments,
+    }
+    window_fetchers = {
+        "classifications": fetch_window_classifications,
+        "talks": fetch_window_comments,
+    }
+    if days == 0:
+        result = full_fetchers[source](through)
+        if result.end != through or result.reported_total != result.observed_total:
+            raise ValueError("ERAS full-history aggregate failed validation")
+    else:
+        start: date = through - timedelta(days=days - 1)
+        result = window_fetchers[source](start, through)
+        if (
+            result.start != start
+            or result.end != through
+            or result.reported_total != result.observed_total
+        ):
+            raise ValueError("ERAS date-range aggregate failed validation")
+    return dict(result.calendar_series())
 
 
 def refresh_source(
@@ -302,34 +362,7 @@ def refresh_source(
             days,
         )
         phase = "fetch_and_validate"
-        counts: dict[date, int]
-        if source == "users":
-            counts = fetch_panoptes(through=through, history_days=days)
-        else:
-            if days == 0:
-                fetcher = (
-                    fetch_full_classifications
-                    if source == "classifications"
-                    else fetch_full_comments
-                )
-                result = fetcher(through)
-                if result.end != through or result.reported_total != result.observed_total:
-                    raise ValueError("ERAS full-history aggregate failed validation")
-            else:
-                start: date = through - timedelta(days=days - 1)
-                fetcher = (
-                    fetch_window_classifications
-                    if source == "classifications"
-                    else fetch_window_comments
-                )
-                result = fetcher(start, through)
-                if (
-                    result.start != start
-                    or result.end != through
-                    or result.reported_total != result.observed_total
-                ):
-                    raise ValueError("ERAS date-range aggregate failed validation")
-            counts = dict(result.calendar_series())
+        counts: dict[date, int] = _fetch_activity_counts(source, through=through, days=days)
         LOG.info(
             "event=source_fetch_completed source=%s buckets=%d aggregate_total=%d "
             "elapsed_ms=%.1f",

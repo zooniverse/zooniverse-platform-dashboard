@@ -23,7 +23,8 @@ from pathlib import Path
 from typing import Final
 
 from zooniverse_dashboard.config import data_dir
-from zooniverse_dashboard.snapshots import MAX_DAYS, _atomic_publish
+from zooniverse_dashboard.snapshots import MAX_DAYS
+from zooniverse_dashboard.storage import atomic_publish_json
 
 CONFIG_FORMAT: Final[str] = "ZOONIVERSE_COLLECTION_CONFIG_V1"
 CONFIG_NAME: Final[str] = "collection_config.json"
@@ -141,7 +142,7 @@ def set_history_days(days: int, root: Path | None = None) -> Path:
 
     An existing override is validated before replacement, preventing a
     corrupted or unsafe file from being silently overwritten. Publication
-    uses the internal ``_atomic_publish`` helper in the snapshots module.
+    uses the internal ``atomic_publish_json`` helper in the storage module.
 
     Parameters
     ----------
@@ -166,5 +167,5 @@ def set_history_days(days: int, root: Path | None = None) -> Path:
     path = _override_path(root)
     if path.exists() or path.is_symlink():
         effective_history_days(root)  # Reject corrupt or unsafe files, no overwrite.
-    _atomic_publish(path, {"format": CONFIG_FORMAT, "history_days": value})
+    atomic_publish_json(path, {"format": CONFIG_FORMAT, "history_days": value})
     return path

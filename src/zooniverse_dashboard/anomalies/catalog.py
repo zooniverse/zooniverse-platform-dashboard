@@ -27,15 +27,14 @@ See Also
 from __future__ import annotations
 
 import json
-import os
 import re
-import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable
 
 from zooniverse_dashboard.config import data_dir
 from zooniverse_dashboard.snapshots import SOURCES, load_snapshot
+from zooniverse_dashboard.storage import atomic_replace_text
 
 CATALOG_FORMAT: str = "ZOONIVERSE_ANOMALIES_V1"
 ID_PATTERN: re.Pattern[str] = re.compile(
@@ -208,9 +207,9 @@ def write_catalog(doc: dict[str, Any], *, root: Path | None = None) -> None:
 
     Serialize the supplied dictionary to compact UTF-8 JSON, reject unsafe
     destinations and documents above ``MAX_CATALOG_BYTES``, and publish using a
-    0600-permission temporary file in the destination directory. Flush and fsync
-    the temporary file before replacing the old catalog; remove the temporary
-    file on completion or failure. A valid previous catalog survives errors that
+    0600-permission temporary file in the destination directory. The shared
+    storage helper flushes and syncs the file, replaces it, and syncs the
+    parent directory; temporary files are cleaned up on errors. A valid previous catalog survives errors that
     occur before the final atomic replacement.
 
     Parameters
@@ -247,20 +246,7 @@ def write_catalog(doc: dict[str, Any], *, root: Path | None = None) -> None:
     content: str = json.dumps(doc, separators=(",", ":"))
     if len(content.encode("utf-8")) > MAX_CATALOG_BYTES:
         raise ValueError("Anomaly catalog exceeds size limit")
-    destination.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
-    fd, temp = tempfile.mkstemp(prefix=".anomaly-", dir=destination.parent)
-    try:
-        with os.fdopen(fd, "w", encoding="utf-8") as stream:
-            os.fchmod(stream.fileno(), 0o600)
-            stream.write(content)
-            stream.flush()
-            os.fsync(stream.fileno())
-        if destination.is_symlink():
-            raise ValueError("Anomaly catalog destination changed")
-        os.replace(temp, destination)
-    finally:
-        if os.path.exists(temp):
-            os.unlink(temp)
+    atomic_replace_text(destination, content, prefix=".anomaly-")
 
 
 def build_catalog(

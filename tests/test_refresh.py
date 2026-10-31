@@ -160,3 +160,54 @@ def test_failed_source_is_sanitized(monkeypatch, tmp_path):
     monkeypatch.setattr(refresh, "refresh_launches", lambda **kw: None)
     status = refresh.refresh_all(root=tmp_path, now=NOW)
     assert status["state"] == "partial_failure"
+
+
+@pytest.mark.parametrize(
+    ("source", "full_name", "window_name"),
+    [
+        ("classifications", "fetch_full_classifications", "fetch_window_classifications"),
+        ("talks", "fetch_full_comments", "fetch_window_comments"),
+    ],
+)
+def test_activity_fetch_dispatch_retains_full_and_window_contracts(
+    monkeypatch, source, full_name, window_name
+):
+    calls = []
+
+    def full(through):
+        calls.append(("full", through))
+        return fake_full_probe(through)
+
+    def window(start, through):
+        calls.append(("window", start, through))
+        return fake_probe(start, through, count=3)
+
+    monkeypatch.setattr(refresh, full_name, full)
+    monkeypatch.setattr(refresh, window_name, window)
+    full_counts = refresh._fetch_activity_counts(source, through=THROUGH, days=0)
+    assert min(full_counts) == date(2024, 1, 1)
+    window_counts = refresh._fetch_activity_counts(source, through=THROUGH, days=7)
+    assert len(window_counts) == 7
+    assert sum(window_counts.values()) == 21
+    assert calls == [
+        ("full", THROUGH),
+        ("window", THROUGH - timedelta(days=6), THROUGH),
+    ]
+
+
+def test_activity_fetch_rejects_wrong_eras_boundaries(monkeypatch):
+    monkeypatch.setattr(
+        refresh,
+        "fetch_window_classifications",
+        lambda start, through: fake_probe(start + timedelta(days=1), through),
+    )
+    with pytest.raises(ValueError, match="date-range aggregate"):
+        refresh._fetch_activity_counts("classifications", through=THROUGH, days=7)
+
+    monkeypatch.setattr(
+        refresh,
+        "fetch_full_comments",
+        lambda through: fake_full_probe(through - timedelta(days=1)),
+    )
+    with pytest.raises(ValueError, match="full-history aggregate"):
+        refresh._fetch_activity_counts("talks", through=THROUGH, days=0)

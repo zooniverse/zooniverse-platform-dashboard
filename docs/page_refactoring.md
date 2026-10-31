@@ -147,3 +147,25 @@ snapshot and anomaly-catalog publication, preserving independent format
 validation, worker locks, and the refresh cooldown. After that, consider
 small source-dispatch and browser-utility cleanups only when tests establish
 that they reduce coupling without changing observable behavior.
+
+## Phase 4: persistence and refresh infrastructure
+
+JSON files have format-specific validation in their owner modules, but share
+identical filesystem durability requirements. The `storage.py` module handles
+private temporary files, file and parent-directory syncing, atomic replacement,
+and temporary cleanup. Schema validation, existing-file checks, upper size
+bounds and error presentation remain in the activity, launch, anomaly and
+refresh-status modules. In particular, anomaly catalogs retain their own size
+limit rather than inheriting the activity snapshot limit.
+
+An atomic rename prevents readers seeing partially written files. It cannot
+roll back an already-completed rename if the subsequent directory sync fails:
+callers receive that failure and should not assume the previous file survived.
+The shared writer is intended for a single access-controlled POSIX volume,
+not cross-host coordination or a defense against a hostile directory owner.
+
+The refresh coordinator retains its advisory lock and cooldown. Activity
+source fetch normalization now lives in one private helper, keeping full- and
+bounded-history ERAS reconciliation distinct from snapshot publication.
+Project-launch collection remains an independent stream, and only the three
+activity streams feed anomaly analysis.

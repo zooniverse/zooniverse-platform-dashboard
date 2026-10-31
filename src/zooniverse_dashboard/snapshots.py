@@ -22,14 +22,13 @@ See Also
 from __future__ import annotations
 
 import json
-import os
-import tempfile
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Final, Mapping
 
 from zooniverse_dashboard.config import data_dir
+from zooniverse_dashboard.storage import atomic_publish_json
 
 FORMAT: Final[str] = "ZOONIVERSE_DAILY_AGGREGATES_V1"
 SOURCES: Final[tuple[str, ...]] = ("users", "classifications", "talks")
@@ -233,61 +232,6 @@ def load_snapshot(source: str, *, root: Path | None = None) -> Snapshot:
     return _parse(json.loads(path.read_text(encoding="utf-8")), source)
 
 
-def _atomic_publish(path: Path, document: dict) -> None:
-    """Write a small JSON document durably and replace its destination.
-
-    A temporary file is created in the destination directory with private
-    permissions and its contents synced before ``os.replace``. The parent
-    directory is synced after replacement. Symlink destination paths are
-    rejected to avoid following unsafe paths.
-
-    Parameters
-    ----------
-    path : pathlib.Path
-        Destination ending in ``.json`` on a persistent volume.
-    document : dict
-        JSON-serializable document to publish.
-
-    Returns
-    -------
-    None
-        The destination is replaced only after the temporary file has
-        been written successfully.
-
-    Raises
-    ------
-    ValueError
-        If the destination suffix or symlink safety checks fail.
-    OSError
-        If creating, syncing, or replacing the file fails.
-    TypeError
-        If ``document`` contains non-JSON-serializable objects.
-    """
-    if path.suffix != ".json" or path.is_symlink():
-        raise ValueError("Invalid snapshot destination")
-    path.parent.mkdir(parents=True, mode=0o700, exist_ok=True)
-    fd: int
-    tmp: str
-    fd, tmp = tempfile.mkstemp(prefix=".analytics-", dir=path.parent)
-    try:
-        with os.fdopen(fd, "w", encoding="utf-8") as stream:
-            os.fchmod(stream.fileno(), 0o600)
-            json.dump(document, stream, separators=(",", ":"))
-            stream.flush()
-            os.fsync(stream.fileno())
-        if path.is_symlink():
-            raise ValueError("Snapshot destination changed")
-        os.replace(tmp, path)
-        dir_fd: int = os.open(path.parent, os.O_RDONLY)
-        try:
-            os.fsync(dir_fd)
-        finally:
-            os.close(dir_fd)
-    finally:
-        if os.path.exists(tmp):
-            os.unlink(tmp)
-
-
 def publish_snapshot(
     source: str,
     counts: Mapping[date, int],
@@ -371,5 +315,5 @@ def publish_snapshot(
     parsed: Snapshot = _parse(doc, source)
     if len(json.dumps(doc)) > MAX_BYTES:
         raise ValueError("Aggregate exceeds storage limit")
-    _atomic_publish(path, doc)
+    atomic_publish_json(path, doc)
     return parsed
