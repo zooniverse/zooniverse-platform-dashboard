@@ -18,9 +18,14 @@ See Also
 
 from __future__ import annotations
 
-from datetime import date, timedelta
+from datetime import date
 
-from zooniverse_dashboard.chart_data import ChartBucket
+from zooniverse_dashboard.chart_data import (
+    ChartBucket,
+)
+from zooniverse_dashboard.chart_data import (
+    next_bucket_start as calendar_next_bucket_start,
+)
 
 
 def display_date(day: date) -> str:
@@ -44,12 +49,17 @@ PERIOD_BAR_WIDTH: float = 0.82
 
 
 def next_bucket_start(start: date, interval: str) -> date:
-    """Compute the exclusive end of a complete calendar bucket.
+    """Compute a grouped-bar bucket boundary using the shared calendar rules.
+
+    The grouped-bar interface accepts only week, month, and year; daily bins
+    retain a date axis instead. The calendar arithmetic itself is maintained
+    by :func:`zooniverse_dashboard.chart_data.next_bucket_start`.
 
     Parameters
     ----------
     start : datetime.date
-        First date of the bucket (Monday, first of month, or first of year).
+        First day of the complete bucket (Monday for weeks, first day for
+        months and years).
     interval : str
         One of ``weekly``, ``monthly``, or ``yearly``.
 
@@ -63,15 +73,9 @@ def next_bucket_start(start: date, interval: str) -> date:
     ValueError
         If ``interval`` is not a supported grouped-bar interval.
     """
-    if interval == "weekly":
-        return start + timedelta(days=7)
-    if interval == "monthly":
-        if start.month == 12:
-            return date(start.year + 1, 1, 1)
-        return date(start.year, start.month + 1, 1)
-    if interval == "yearly":
-        return date(start.year + 1, 1, 1)
-    raise ValueError("Only grouped bars use indexed calendar buckets")
+    if interval not in ("weekly", "monthly", "yearly"):
+        raise ValueError("Only grouped bars use indexed calendar buckets")
+    return calendar_next_bucket_start(start, interval)
 
 
 def period_label(bucket: ChartBucket, interval: str) -> str:

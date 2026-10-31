@@ -4,7 +4,13 @@ from datetime import date
 
 import pytest
 
-from zooniverse_dashboard.chart_data import ChartBucket
+from zooniverse_dashboard.chart_data import (
+    ChartBucket,
+    bucket_start,
+)
+from zooniverse_dashboard.chart_data import (
+    next_bucket_start as calendar_next_bucket_start,
+)
 from zooniverse_dashboard.chart_geometry import (
     PERIOD_BAR_WIDTH,
     display_date,
@@ -25,6 +31,25 @@ def test_weekday_labels_and_calendar_boundaries():
     for interval in ("daily", "invalid"):
         with pytest.raises(ValueError):
             next_bucket_start(date(2024, 2, 1), interval)
+
+
+@pytest.mark.parametrize("interval", ("weekly", "monthly", "yearly"))
+@pytest.mark.parametrize(
+    "day",
+    (
+        date(2020, 12, 31),
+        date(2024, 2, 29),
+        date(2024, 12, 30),
+        date(2025, 1, 1),
+        date(2026, 10, 31),
+    ),
+)
+def test_grouped_bar_boundaries_follow_shared_calendar(day, interval):
+    """Chart geometry delegates full-period boundaries to chart_data."""
+    beginning = bucket_start(day, interval)
+    expected = calendar_next_bucket_start(beginning, interval)
+    assert next_bucket_start(beginning, interval) == expected
+    assert beginning <= day < expected
 
 
 def test_partial_leap_month_width_and_launch_position():

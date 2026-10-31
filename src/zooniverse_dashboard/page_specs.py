@@ -2,22 +2,18 @@
 
 The activity pages and the Projects page share a presentation skeleton, but
 not their summary periods, supported chart windows or data layers. This module
-captures those *existing* choices as immutable specifications so a future
-shared renderer can accept one :class:`PageSpec` rather than branching on page
-names. It performs no snapshot loading, rendering, database calls or callback
-registration.
-
-Phase 1 uses these specifications as a documented target contract, guarded by
-characterization tests against the current independent renderers. The active
-``ui`` and ``projects_ui`` implementations are intentionally unchanged until
-those tests establish a reliable baseline.
+captures those choices as immutable specifications consumed by the shared
+:func:`zooniverse_dashboard.page_components.build_metric_page` renderer.
+The activity and Projects figure builders also consult each page's layer
+policy. Snapshot loading and metric calculations remain in the source adapters;
+this module performs no I/O, Dash rendering or callback registration.
 
 See Also
 --------
 :func:`zooniverse_dashboard.ui.layout_for`
-    Current shared activity-page renderer.
+    Activity-page adapter to the shared renderer.
 :func:`zooniverse_dashboard.projects_ui.projects_layout`
-    Current Projects renderer.
+    Projects-page adapter to the shared renderer.
 """
 
 from __future__ import annotations

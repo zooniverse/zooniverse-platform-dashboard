@@ -71,6 +71,19 @@ def test_projects_has_distinct_periods_and_no_activity_overlays():
     assert not projects.layers
 
 
+def test_page_control_values_match_domain_validation_contracts():
+    """Keep UI choices synchronized without importing UI specs into data modules."""
+    from zooniverse_dashboard.chart_data import INTERVALS as CALENDAR_INTERVALS
+    from zooniverse_dashboard.projects_data import INTERVALS as PROJECT_INTERVALS
+    from zooniverse_dashboard.projects_data import WINDOWS as PROJECT_WINDOWS
+
+    projects = PAGE_SPECS["projects"]
+    assert tuple(choice.value for choice in projects.intervals) == PROJECT_INTERVALS
+    assert tuple(choice.value for choice in projects.windows) == PROJECT_WINDOWS
+    for source in ("users", "classifications", "talks"):
+        assert tuple(choice.value for choice in PAGE_SPECS[source].intervals) == CALENDAR_INTERVALS
+
+
 def test_optional_layers_match_current_trace_policy():
     for key in ("users", "classifications", "talks"):
         page = PAGE_SPECS[key]

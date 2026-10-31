@@ -1,11 +1,12 @@
 # Page architecture refactor: behavioral baseline
 
 This document tracks the UI consolidation that follows the `v0.1.0` release.
-Phase 1 recorded the existing four page variants and established characterization
-tests without changing the runtime. Phase 2 extracted shared presentation code
-while preserving that tested contract. Phase 3 consolidates calendar aggregation
-and coverage checks, without blending continuous activity data and sparse
-project-launch data.
+Phase 1 recorded the four page variants and established characterization tests.
+Phase 2 extracted shared presentation code. Phase 3 consolidated calendar
+aggregation and coverage checks without blending continuous activity data and
+sparse project-launch data. Phase 4 consolidated atomic filesystem operations
+and simplified refresh-source normalization. Phase 5A removes duplicated
+calendar arithmetic and documents configuration consistency.
 
 ## One page skeleton, different specifications
 
@@ -51,12 +52,13 @@ The model separates:
 - **`snapshot_kind`**: continuous activity histories versus sparse approved
   project launches. The two kinds have different validation/coverage semantics.
 
-The page specification now drives common Dash controls, IDs, card scaffolding,
+The page specification drives common Dash controls, IDs, card scaffolding,
 and graph layout through `page_components.py`. Activity and Projects adapters
 continue to own their independently validated snapshot loads, aggregate card
-calculations, text about data provenance, and callbacks. The declarative
-`layers` policy is a contract for future figure-layer extraction; it is not yet
-the runtime dispatcher for overlays.
+calculations, text about data provenance, and callbacks. The activity figure
+builder also checks `PageSpec.has_layer()` for anomaly diamonds, project-launch
+triangles, and the trailing-average trace. Each layer still owns its own
+trace-building logic; there is no generic trace dispatcher.
 
 ## Behaviors to preserve
 
@@ -140,14 +142,6 @@ Run `pytest -q`, `black --check src tests`, `ruff check .`, and
 The Dash characterization tests require the project's regular dependencies;
 they are skipped in minimal installations without Dash.
 
-## Next refactor phase
-
-Consolidate the atomic-file and filesystem-safety mechanics shared between
-snapshot and anomaly-catalog publication, preserving independent format
-validation, worker locks, and the refresh cooldown. After that, consider
-small source-dispatch and browser-utility cleanups only when tests establish
-that they reduce coupling without changing observable behavior.
-
 ## Phase 4: persistence and refresh infrastructure
 
 JSON files have format-specific validation in their owner modules, but share
@@ -169,3 +163,25 @@ source fetch normalization now lives in one private helper, keeping full- and
 bounded-history ERAS reconciliation distinct from snapshot publication.
 Project-launch collection remains an independent stream, and only the three
 activity streams feed anomaly analysis.
+
+## Phase 5A: calendar boundaries and configuration consistency
+
+`chart_data.next_bucket_start()` is the single implementation of daily,
+Monday-starting weekly, monthly, and yearly calendar-boundary arithmetic.
+`chart_geometry.next_bucket_start()` delegates to it but retains the stricter
+week/month/year validation required by numeric grouped-bar axes. The Projects
+`next_period()` compatibility helper also delegates to the same calendar
+function, with its own month/year restriction. These adapters deliberately
+preserve their caller-facing validation policies rather than making the chart
+generators or Projects data layer depend on one another.
+
+The allowed Projects chart windows and intervals are enforced in the domain
+module (`projects_data.py`) and displayed by the declarative page spec
+(`page_specs.py`). Rather than importing UI specifications into the domain
+layer, regression tests assert that the two sets remain identical. They also
+verify that all activity-page interval options belong to the chart aggregation
+contract. Presentation labels and defaults remain the responsibility of
+`PageSpec`, while domain validation remains independent of Dash.
+
+No persisted data formats, default windows, chart types, hover content, zoom
+metadata, queries, or refresh behavior change in this phase.
