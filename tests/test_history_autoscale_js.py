@@ -9,9 +9,7 @@ import pytest
 
 @pytest.mark.skipif(shutil.which("node") is None, reason="Node.js is not installed")
 def test_indexed_calendar_axes_keep_readable_ticks_and_y_autoscale():
-    asset = (
-        Path(__file__).resolve().parents[1] / "src/zooniverse_dashboard/assets/history_autoscale.js"
-    )
+    assets = Path(__file__).resolve().parents[1] / "src/zooniverse_dashboard/assets"
     script = r"""
 const fs = require('node:fs');
 const vm = require('node:vm');
@@ -23,9 +21,9 @@ const document = {
     documentElement: {},
 };
 class MutationObserver { observe() {} }
-vm.runInNewContext(fs.readFileSync(process.argv[1], 'utf8'), {
-    window, document, MutationObserver, Date, Promise,
-});
+const context = {window, document, MutationObserver, Date, Promise};
+vm.runInNewContext(fs.readFileSync(process.argv[1], 'utf8'), context);
+vm.runInNewContext(fs.readFileSync(process.argv[2], 'utf8'), context);
 const {periodTickUpdate, verticalRange} = window.ZooniverseChartAutoscale;
 const labels = Array.from({length: 60}, (_, i) => `Period ${i}`);
 const plot = {
@@ -47,4 +45,15 @@ assert.deepEqual(Array.from(verticalRange(plot)), [0, 95 * 1.15]);
 const noMeta = {layout: {}, _fullLayout: plot._fullLayout};
 assert.equal(periodTickUpdate(noMeta), null);
 """
-    subprocess.run(["node", "-e", script, str(asset)], check=True, capture_output=True, text=True)
+    subprocess.run(
+        [
+            "node",
+            "-e",
+            script,
+            str(assets / "00_history_runtime.js"),
+            str(assets / "history_autoscale.js"),
+        ],
+        check=True,
+        capture_output=True,
+        text=True,
+    )

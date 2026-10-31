@@ -9,7 +9,7 @@ import pytest
 
 @pytest.mark.skipif(shutil.which("node") is None, reason="Node.js is not installed")
 def test_zoom_persists_across_grouped_bars_pages_and_reset():
-    asset = Path(__file__).resolve().parents[1] / "src/zooniverse_dashboard/assets/history_zoom.js"
+    assets = Path(__file__).resolve().parents[1] / "src/zooniverse_dashboard/assets"
     script = r"""
 const fs = require('node:fs');
 const vm = require('node:vm');
@@ -34,9 +34,9 @@ window.Plotly = {
         return Promise.resolve();
     },
 };
-vm.runInNewContext(fs.readFileSync(process.argv[1], 'utf8'), {
-    window, document, MutationObserver, Date, Promise,
-});
+const context = {window, document, MutationObserver, Date, Promise};
+vm.runInNewContext(fs.readFileSync(process.argv[1], 'utf8'), context);
+vm.runInNewContext(fs.readFileSync(process.argv[2], 'utf8'), context);
 const z = window.ZooniverseChartZoom;
 const ms = value => Date.parse(value);
 const between = (a, b) => Math.abs(a - b) < 1e-7;
@@ -147,4 +147,15 @@ assert.deepEqual(Array.from(z.axisToDates(z.datesToAxis(precise,
     daily('users', 'precision')), daily('users', 'precision'))), precise);
 })().catch(err => { console.error(err); process.exitCode = 1; });
 """
-    subprocess.run(["node", "-e", script, str(asset)], check=True, capture_output=True, text=True)
+    subprocess.run(
+        [
+            "node",
+            "-e",
+            script,
+            str(assets / "00_history_runtime.js"),
+            str(assets / "history_zoom.js"),
+        ],
+        check=True,
+        capture_output=True,
+        text=True,
+    )

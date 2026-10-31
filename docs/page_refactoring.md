@@ -207,3 +207,29 @@ layers, Y-axis labels, and their distinct revision strings. No callback IDs,
 JSON snapshot formats, Panoptes queries, or browser scripts change in this
 phase. Tests cover the shared helper functions and preserve all existing
 page-figure characterization checks.
+
+## Phase 5C: browser lifecycle and compatibility audit
+
+Dash serves the JavaScript files in `src/zooniverse_dashboard/assets/` in
+filename order. `00_history_runtime.js` supplies one DOM observer and one
+request-animation-frame scan to register history-chart handlers after initial
+rendering and route changes. `history_zoom.js` and `history_autoscale.js` remain
+independent: they register idempotent attachments, share the X-range relayout
+predicate, and retain their existing UTC session viewport and Y-scaling logic.
+This eliminates two overlapping graph-discovery loops without changing the
+snapshot schema, Python callbacks, chart metadata or browser storage key.
+
+The exploratory weekday-median/MAD module (`detection.py`) has no in-repository
+callers in the current dashboard; the Anomalies page exclusively uses the NB2
+implementation under `anomalies/`. The `DailyOutlier` class and
+`find_weekday_outliers()` function remain documented and importable for callers
+that might use the package programmatically. Removing that public interface
+would require a separate compatibility decision, not a behavior-preserving
+cleanup. The Projects `next_period()` adapter likewise retains its independent
+month/year validation contract.
+
+Before considering this refactor complete, validate the browser zoom and
+Y-autoscale scripts on each page (including after navigation), inspect the
+Plots in both bar and line modes, and rerun the Docker smoke test and a real
+four-stream refresh. The Node-based tests cover the attachment lifecycle and
+calculation helpers but do not replace an interactive browser test.

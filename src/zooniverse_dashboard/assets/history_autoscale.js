@@ -78,12 +78,7 @@
         return {"xaxis.tickvals": indexes, "xaxis.ticktext": values};
     }
 
-    function xChanged(update) {
-        return Object.keys(update || {}).some(key =>
-            key === "xaxis.range" || key.startsWith("xaxis.range[")
-            || key === "xaxis.autorange"
-        );
-    }
+    const {register, xChanged} = window.ZooniverseChartRuntime;
 
     function yChanged(update) {
         return Object.keys(update || {}).some(key =>
@@ -124,30 +119,7 @@
         }
     }
 
-    const seen = new WeakSet();
-    let scheduled = false;
-    function scan() {
-        scheduled = false;
-        for (const plot of document.querySelectorAll(".history-graph .js-plotly-plot")) {
-            if (!seen.has(plot) && typeof plot.on === "function") {
-                attach(plot);
-                seen.add(plot);
-            }
-        }
-    }
-    function schedule() {
-        if (scheduled) return;
-        scheduled = true;
-        window.requestAnimationFrame(scan);
-    }
-    if (document.readyState === "loading") {
-        document.addEventListener("DOMContentLoaded", schedule, {once: true});
-    } else {
-        schedule();
-    }
-    new MutationObserver(schedule).observe(document.documentElement, {
-        childList: true, subtree: true
-    });
+    register(attach);
 
     // Pure helper exposed for browser tests; no global application state.
     window.ZooniverseChartAutoscale = {verticalRange, periodTickUpdate, xChanged, yChanged};

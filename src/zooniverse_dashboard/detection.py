@@ -1,6 +1,8 @@
 """Exploratory weekday-matched median/MAD outlier detection.
 
-This legacy, standalone detector compares a day's aggregate count against
+This legacy, standalone detector is retained as a public Python API for
+compatibility, although it has no callers in the current dashboard. It
+compares a day's aggregate count against
 counts from preceding occurrences of the same weekday. It neither queries
 upstream systems nor reads individual user records. It is **not** the detector
 used by the dashboard Anomalies page: that production path is implemented in

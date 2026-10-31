@@ -102,12 +102,7 @@
         catch (_) { /* Same fallback as saveRange. */ }
     }
 
-    function xChanged(update) {
-        return Object.keys(update || {}).some(key =>
-            key === "xaxis.range" || key.startsWith("xaxis.range[")
-            || key === "xaxis.autorange"
-        );
-    }
+    const {register, xChanged} = window.ZooniverseChartRuntime;
 
     function chartMeta(plot) {
         const meta = plot.layout && plot.layout.meta;
@@ -176,26 +171,7 @@
         sync(plot, state);
     }
 
-    let scheduled = false;
-    function scan() {
-        scheduled = false;
-        for (const plot of document.querySelectorAll(".history-graph .js-plotly-plot")) {
-            attach(plot);
-        }
-    }
-    function schedule() {
-        if (scheduled) return;
-        scheduled = true;
-        window.requestAnimationFrame(scan);
-    }
-    if (document.readyState === "loading") {
-        document.addEventListener("DOMContentLoaded", schedule, {once: true});
-    } else {
-        schedule();
-    }
-    new MutationObserver(schedule).observe(document.documentElement, {
-        childList: true, subtree: true
-    });
+    register(attach);
 
     // Pure conversion helpers are exported for Node-based regression tests.
     window.ZooniverseChartZoom = {axisToDates, datesToAxis, slotToMs, msToSlot, attach};
