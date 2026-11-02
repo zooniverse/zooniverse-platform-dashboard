@@ -106,8 +106,7 @@ when optional snapshot data is absent.
   omit every day in that period. It does not materialize a daily zero row for
   every missing date, which keeps all-history launch aggregation efficient.
 - `chart_data.next_bucket_start()` supplies the following UTC boundary for day,
-  ISO week, month, or year. `projects_data.next_period()` remains as a
-  month/year-only compatibility adapter for the existing Projects chart.
+  ISO week, month, or year. Projects calls the shared aggregation directly.
 - `periods.covered_period_total()` centralizes the rule for determining whether
   a summary interval has sufficient coverage. It returns zero for an interval
   containing no completed UTC days, `None` for an incomplete nonempty interval,
@@ -129,11 +128,12 @@ when optional snapshot data is absent.
   permitted overlays, options, defaults, and consistency with the actual KPI
   aggregation functions.
 - `tests/test_page_characterization.py` uses synthetic in-memory snapshots to
-  exercise the existing Dash layouts and **all 24 activity figure variants**
-  (three sources, four intervals and two plot types) and **all four Projects
-  figure variants** (two intervals, two plot types). It checks control IDs and
-  defaults, trace identities, tooltip escaping, zero-launch periods, baseline
-  markers, calendar axes and Plotly zoom metadata.
+  exercise the Dash layouts for all four pages, the complete **eight-variant**
+  activity figure matrix (four intervals and two plot types), source-specific
+  filtering on Classifications and Talk, and **all four Projects figure
+  variants**. This avoids repeating the same chart-style matrix for each
+  activity source while checking source identity, anomaly isolation, overlays,
+  control IDs, hover escaping, calendar axes and zoom metadata.
 - Existing `tests/test_history_zoom_js.py` and
   `tests/test_history_autoscale_js.py` protect browser-side behavior; the
   refresh, snapshot and anomaly test suites remain in place.
@@ -171,10 +171,8 @@ activity streams feed anomaly analysis.
 Monday-starting weekly, monthly, and yearly calendar-boundary arithmetic.
 `chart_geometry.next_bucket_start()` delegates to it but retains the stricter
 week/month/year validation required by numeric grouped-bar axes. The Projects
-`next_period()` compatibility helper also delegates to the same calendar
-function, with its own month/year restriction. These adapters deliberately
-preserve their caller-facing validation policies rather than making the chart
-generators or Projects data layer depend on one another.
+Projects validates its month/year choices in `launch_buckets()`; only the
+graph-geometry adapter remains to enforce stricter grouped-bar intervals.
 
 The allowed Projects chart windows and intervals are enforced in the domain
 module (`projects_data.py`) and displayed by the declarative page spec
@@ -219,17 +217,34 @@ predicate, and retain their existing UTC session viewport and Y-scaling logic.
 This eliminates two overlapping graph-discovery loops without changing the
 snapshot schema, Python callbacks, chart metadata or browser storage key.
 
-The exploratory weekday-median/MAD module (`detection.py`) has no in-repository
-callers in the current dashboard; the Anomalies page exclusively uses the NB2
-implementation under `anomalies/`. The `DailyOutlier` class and
-`find_weekday_outliers()` function remain documented and importable for callers
-that might use the package programmatically. Removing that public interface
-would require a separate compatibility decision, not a behavior-preserving
-cleanup. The Projects `next_period()` adapter likewise retains its independent
-month/year validation contract.
+The unused standalone weekday-MAD detector and the retired short-window
+ERAS fetch wrappers have been deleted. The supported anomaly implementation
+is exclusively NB2 under `anomalies/`; the configured-window and all-history
+ERAS collectors remain active. The current snapshot schemas are strict and
+do not attempt to migrate files from earlier development versions.
 
 Before considering this refactor complete, validate the browser zoom and
 Y-autoscale scripts on each page (including after navigation), inspect the
 Plots in both bar and line modes, and rerun the Docker smoke test and a real
 four-stream refresh. The Node-based tests cover the attachment lifecycle and
 calculation helpers but do not replace an interactive browser test.
+
+## Cleanup B: test ownership
+
+Tests are organized by the behavior they protect, rather than by every
+combination of page and implementation helper:
+
+- `test_page_characterization.py` exercises page-to-`PageSpec` wiring, the
+  activity chart's aggregation/style matrix, representative source-specific
+  isolation, and the distinct Projects chart modes.
+- `test_chart_data.py`, `test_projects_page.py`, `test_chart_geometry.py`, and
+  `test_figure_layout.py` cover edge cases in their respective domain models
+  and plotting helpers, without reasserting the same zoom metadata for every
+  activity source.
+- JavaScript tests separately protect browser zoom persistence, autoscaling,
+  and graph attachment across navigation. Storage and refresh failure tests
+  stay independent of UI behavior.
+
+The full test suite should be run with Dash installed; minimal environments
+will skip some integration checks. Reducing a test matrix does not justify
+removing distinct failure-path or privacy assertions.

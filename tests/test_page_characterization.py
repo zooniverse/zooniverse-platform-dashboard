@@ -1,7 +1,9 @@
-"""Behavioral baseline for the v0.1.0 chart pages before sharing their renderer.
+"""Integration contracts for the shared page renderer and chart variants.
 
-These tests intentionally call the existing entry points rather than a future
-shared renderer. They use in-memory snapshots and never touch live sources.
+Run the complete aggregation/style matrix once for the common activity figure
+builder; use targeted checks for source isolation. Pure calendar calculations,
+zoom metadata and layout helpers have their own dedicated test modules.
+All snapshots are synthetic; no upstream I/O occurs.
 """
 
 from datetime import date, datetime, timedelta, timezone
@@ -117,14 +119,12 @@ def test_projects_page_controls_and_cards_are_baselined(monkeypatch):
     assert _component_with_id(layout, "projects-graph") is not None
 
 
-@pytest.mark.parametrize("source", ("users", "classifications", "talks"))
 @pytest.mark.parametrize("interval", ("daily", "weekly", "monthly", "yearly"))
 @pytest.mark.parametrize("plot_type", ("line", "bars"))
-def test_activity_figure_traces_and_shared_zoom_metadata_are_baselined(
-    source, interval, plot_type, monkeypatch
-):
+def test_activity_figure_traces_and_shared_zoom_metadata(interval, plot_type, monkeypatch):
+    source = "users"
     event = {
-        "id": f"{source}-episode",
+        "id": "users-episode",
         "source": source,
         "direction": "spike",
         "detected": "2024-02-05",
@@ -180,6 +180,34 @@ def test_activity_figure_traces_and_shared_zoom_metadata_are_baselined(
     assert "&lt;Galaxy &amp; Stars&gt;" in marker.customdata[0]
     assert "Mon 05 Feb 2024" in marker.customdata[0]
     assert isinstance(marker.x[0], float if indexed else str)
+
+
+@pytest.mark.parametrize("source", ("classifications", "talks"))
+def test_activity_sources_keep_their_own_counts_events_and_launch_overlay(source, monkeypatch):
+    """Sources share chart rendering, but anomaly episodes must not cross sources."""
+    own_event = {
+        "id": f"{source}-episode",
+        "source": source,
+        "direction": "spike",
+        "detected": "2024-02-05",
+        "start": "2024-02-05",
+        "end": "2024-02-06",
+    }
+    other_event = {**own_event, "id": "users-episode", "source": "users"}
+    monkeypatch.setattr(ui, "visible_events", lambda: ([other_event, own_event], {}))
+    snapshot = _activity(source)
+    fig = ui.history_figure(
+        snapshot, interval="daily", plot_type="line", window="all", launches=_launches()
+    )
+
+    assert fig.layout.meta["history_zoom"]["source"] == source
+    assert sum(fig.data[0].y) == sum(value for _, value in snapshot.daily)
+    assert fig.layout.yaxis.title.text == f"{PAGE_SPECS[source].count_noun.capitalize()} per day"
+    spikes = [trace for trace in fig.data if trace.name == "Unusual increase episode"]
+    assert len(spikes) == 1
+    assert [row[0] for row in spikes[0].customdata] == [own_event["id"]]
+    assert len([trace for trace in fig.data if trace.name == "Project launched"]) == 1
+    assert len([trace for trace in fig.data if trace.name == "7-day trailing average"]) == 1
 
 
 @pytest.mark.parametrize("interval", ("monthly", "yearly"))

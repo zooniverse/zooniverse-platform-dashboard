@@ -86,41 +86,10 @@ def test_chart_modes_initial_scale_and_episode_navigation(monkeypatch):
     focus = {"source": "users", "start": "2026-05-01", "end": "2026-05-03", "id": "episode"}
     focused = ui.history_figure(snapshot, focus_event=focus)
     assert focused.layout.xaxis.range[0] == "2026-04-24"
+    assert focused.layout.meta["history_zoom"]["focused"] is True
     assert focused.layout.uirevision != daily_line.layout.uirevision
     with pytest.raises(ValueError):
         ui.history_figure(snapshot, plot_type="pie")
-
-
-def test_daily_bar_keeps_clickable_episode_markers(monkeypatch):
-    pytest.importorskip("dash")
-    from zooniverse_dashboard import ui
-
-    rows = _rows(date(2026, 5, 1), [4, 12, 3, 8, 2])
-    snapshot = Snapshot(
-        "users",
-        rows[0][0],
-        rows[-1][0],
-        rows[-1][0] + timedelta(days=1),
-        datetime(2026, 5, 7, tzinfo=timezone.utc),
-        rows,
-        True,
-        0,
-    )
-    event = {
-        "id": "users-2026-05-02-spike",
-        "source": "users",
-        "direction": "spike",
-        "detected": "2026-05-02",
-        "start": "2026-05-02",
-        "end": "2026-05-03",
-    }
-    monkeypatch.setattr(ui, "visible_events", lambda: ([event], {"users": "ready"}))
-    daily = ui.history_figure(snapshot, plot_type="bars", interval="daily")
-    assert daily.data[0].type == "bar"
-    assert daily.data[1].type == "scatter"
-    assert daily.data[1].customdata[0][0] == event["id"]
-    monthly = ui.history_figure(snapshot, plot_type="bars", interval="monthly")
-    assert len(monthly.data) == 1  # Do not move daily detection dates to month bins.
 
 
 def test_grouped_bars_are_equal_slots_and_keep_partial_calendar_widths(monkeypatch):
@@ -144,6 +113,11 @@ def test_grouped_bars_are_equal_slots_and_keep_partial_calendar_widths(monkeypat
     assert monthly.layout.xaxis.type == "linear"
     assert monthly.layout.xaxis.range == (-0.5, 1.5)
     assert monthly.layout.meta["period_labels"] == ["Jan 2024", "Feb 2024"]
+    assert monthly.layout.meta["history_zoom"]["period_bounds"] == [
+        "2024-01-01",
+        "2024-02-01",
+        "2024-03-01",
+    ]
     assert monthly.data[0].y == (2, 4)
     assert monthly.data[0].width[0] == pytest.approx(0.82 * 2 / 31)
     assert monthly.data[0].width[1] == pytest.approx(0.82 * 4 / 29)
@@ -197,46 +171,6 @@ def test_week_and_year_bar_labels_and_line_axis_remain_distinct(monkeypatch):
     assert line.layout.xaxis.type == "date"
     assert line.layout.meta["history_zoom"]["period_bounds"] is None
     assert line.data[0].x[0] == "2026-01-01"
-
-
-def test_zoom_metadata_tracks_calendar_boundaries_and_page_source(monkeypatch):
-    pytest.importorskip("dash")
-    from zooniverse_dashboard import ui
-
-    monkeypatch.setattr(ui, "visible_events", lambda: ([], {}))
-    for source in ("users", "classifications", "talks"):
-        rows = _rows(date(2024, 1, 30), [3] * 40)
-        snapshot = Snapshot(
-            source,
-            rows[0][0],
-            rows[-1][0],
-            rows[-1][0] + timedelta(days=1),
-            datetime(2024, 3, 11, tzinfo=timezone.utc),
-            rows,
-            True,
-            0,
-        )
-        monthly = ui.history_figure(snapshot, interval="monthly", plot_type="bars")
-        meta = monthly.layout.meta["history_zoom"]
-        assert meta["source"] == source
-        assert meta["period_bounds"] == [
-            "2024-01-01",
-            "2024-02-01",
-            "2024-03-01",
-            "2024-04-01",
-        ]
-        assert meta["first"] == "2024-01-30"
-        assert meta["last_exclusive"] == "2024-03-10"
-        assert meta["focused"] is False
-        assert meta["revision"]
-        line = ui.history_figure(snapshot, interval="monthly", plot_type="line")
-        assert line.layout.meta["history_zoom"]["period_bounds"] is None
-        assert line.layout.meta["history_zoom"]["revision"] != meta["revision"]
-        focused = ui.history_figure(
-            snapshot,
-            focus_event={"id": "e", "source": source, "start": "2024-02-10", "end": "2024-02-12"},
-        )
-        assert focused.layout.meta["history_zoom"]["focused"] is True
 
 
 def test_explicit_coverage_fills_sparse_calendar_periods_without_expanding_days():
