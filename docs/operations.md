@@ -53,8 +53,8 @@ the snapshots. The precedence is **volume override >
 `ANALYTICS_HISTORY_DAYS` > default `0`**. Changing an environment value alone
 does not override an existing file; `set-date-limit 0` means *all-time*, not
 "fall back to the environment". A subsequent `refresh-data` or web refresh
-is required to regenerate snapshots under the new limit. The dashboard warns
-when its snapshot was built using a different limit or an older schema.
+is required to regenerate snapshots under the new limit. The dashboard warns when its snapshot was built using a different
+history limit. An incompatible schema is rejected, not displayed.
 
 The command takes the same POSIX lock as the web refresh, so no configuration
 change can occur in the middle of a refresh. The refresh retains its one-hour
@@ -76,8 +76,7 @@ cooldown if necessary.
   `launch_approved IS TRUE`, returning nonzero UTC daily counts and up to 160
   characters of each currently non-private public project title. Private
   titles, IDs, owners and individual timestamps are excluded. An empty bounded
-  history window is valid. See
-  [Project launch markers](project_launch_markers.md).
+  history window is valid.
 - Snapshots are published atomically and independently on the mounted volume.
   A failed source leaves its previous JSON intact; the generic status file
   shows partial failure without exposing credentials or raw server errors.
@@ -143,9 +142,11 @@ A second click during the one-hour cooldown logs `refresh_rejected`. Failed
 sources retain their previous valid JSON; an attempt with partial failures logs
 `state=partial_failure` and `refresh-data` returns exit status 1. A rejected
 CLI attempt returns exit status 2. Successful CLI runs return exit status 0.
-`refresh_status.json` includes a fourth `project_launches` stage. Old
-three-stage files are still accepted, and a failure in project collection
-preserves the previous valid launch JSON without discarding activity data.
+`refresh_status.json` includes a fourth `project_launches` stage. The status reader requires all four streams. A project-launch collection
+failure preserves the previous valid launch JSON without discarding activity
+data. Incompatible generated status files must be cleared and regenerated
+while application and refresh processes are stopped, as described in
+[Installation](installation.md).
 The existing `refresh_status.json` records the collection stage and is updated
 **after each individual source**. The separate `refresh_job.json` reports the
 end-to-end worker state and progress, including anomaly rebuilding. Neither is

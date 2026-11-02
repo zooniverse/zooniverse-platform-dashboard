@@ -111,7 +111,7 @@ def test_cooldown_and_cli_lock_prevent_spawn(monkeypatch, tmp_path):
         "started_at_utc": now.isoformat(),
         "finished_at_utc": now.isoformat(),
         "state": "ok",
-        "streams": {source: "ok" for source in ("users", "classifications", "talks")},
+        "streams": {source: "ok" for source in refresh.REFRESH_STREAMS},
     }
     refresh._write_status(tmp_path, status)
     with pytest.raises(refresh.RefreshRejected, match="last hour"):

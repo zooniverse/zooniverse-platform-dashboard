@@ -3,7 +3,7 @@
 The **Projects** page presents the number of **approved Panoptes project
 launches** by **Month** or **Year**, based on the existing
 `project_launches.json` snapshot. It does **not** add a new Panoptes query or
-modify the existing refresh pipeline. See [Project launch markers](project_launch_markers.md)
+modify the existing refresh pipeline.
 for the exact approved-launch definition and snapshot validation rules. A
 project's `created_at` is *not* its launch date.
 

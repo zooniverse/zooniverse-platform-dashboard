@@ -28,40 +28,12 @@ from typing import Final
 from zooniverse_dashboard.chart_data import (
     ChartBucket,
     group_daily,
-    next_bucket_start,
 )
 from zooniverse_dashboard.periods import covered_period_total
 from zooniverse_dashboard.project_launches import LaunchSnapshot
 
 INTERVALS: Final[tuple[str, ...]] = ("monthly", "yearly")
 WINDOWS: Final[tuple[str, ...]] = ("12", "36", "60", "all")
-# Completed-day viewport, in calendar months.
-
-
-def next_period(start: date, interval: str) -> date:
-    """Find the exclusive UTC calendar boundary after a month or year.
-
-    Parameters
-    ----------
-    start : datetime.date
-        A day within the month or year whose next boundary is required.
-    interval : str
-        ``"monthly"`` or ``"yearly"`` only.
-
-    Returns
-    -------
-    datetime.date
-        First day of the following calendar month or year.
-
-    Raises
-    ------
-    ValueError
-        If ``interval`` is not supported or the next calendar boundary falls
-        outside Python's representable date range.
-    """
-    if interval not in INTERVALS:
-        raise ValueError("Projects charts support only month and year")
-    return next_bucket_start(start, interval)
 
 
 def launch_buckets(snapshot: LaunchSnapshot, interval: str) -> tuple[ChartBucket, ...]:

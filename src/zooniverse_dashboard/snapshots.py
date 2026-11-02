@@ -64,7 +64,7 @@ class Snapshot:
         incomplete historical source response; defaults to ``False``.
     history_days : int or None
         Requested history window: zero for all history, a positive daily
-        limit, or ``None`` for legacy snapshots without recorded settings.
+        limit.
     """
 
     source: str
@@ -74,7 +74,7 @@ class Snapshot:
     last_modified: datetime
     daily: tuple[tuple[date, int], ...]
     history_complete: bool = False
-    history_days: int | None = None  # None means legacy/unknown; 0 means all-time.
+    history_days: int = 0  # Zero means all-time.
 
     def counts(self) -> dict[date, int]:
         """Create a date-to-count lookup from the validated daily rows.
@@ -117,8 +117,7 @@ def snapshot_path(source: str, root: Path | None = None) -> Path:
 def _parse(doc: object, expected: str) -> Snapshot:
     """Validate a decoded snapshot document against the requested source.
 
-    Legacy files without coverage markers are interpreted conservatively as
-    having incomplete or unknown historical coverage. Every day between
+    All required coverage markers must be present. Every day between
     ``first`` and ``last`` must appear exactly once in chronological order.
 
     Parameters
@@ -149,24 +148,18 @@ def _parse(doc: object, expected: str) -> Snapshot:
         "as_of",
         "last_modified_utc",
         "daily",
+        "history_complete",
+        "history_days",
     }
-    if (
-        not isinstance(doc, dict)
-        or not required <= set(doc)
-        or set(doc) - required - {"history_complete", "history_days"}
-    ):
+    if not isinstance(doc, dict) or set(doc) != required:
         raise ValueError("Invalid aggregate snapshot envelope")
     if doc["format"] != FORMAT or doc["source"] != expected or expected not in SOURCES:
         raise ValueError("Unexpected aggregate snapshot source")
-    # Legacy ERAS files had no completeness marker: treat these as partial,
-    # and upgrade them on the next successful all-history refresh.
-    complete: object = doc.get("history_complete", False)
+    complete: object = doc["history_complete"]
     if type(complete) is not bool:
         raise ValueError("Invalid history coverage marker")
-    history_days: object = doc.get("history_days")
-    if history_days is not None and (
-        type(history_days) is not int or not 0 <= history_days <= MAX_DAYS
-    ):
+    history_days: object = doc["history_days"]
+    if type(history_days) is not int or not 0 <= history_days <= MAX_DAYS:
         raise ValueError("Invalid snapshot date limit")
     first: date = date.fromisoformat(doc["first"])
     last: date = date.fromisoformat(doc["last"])

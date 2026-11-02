@@ -194,7 +194,7 @@ def test_failed_launch_stream_preserves_snapshot(monkeypatch, tmp_path):
     assert "password" not in (tmp_path / "refresh_status.json").read_text()
 
 
-def test_legacy_three_stream_status_remains_loadable(tmp_path):
+def test_three_stream_status_is_rejected(tmp_path):
     status = {
         "format": refresh.STATUS_FORMAT,
         "started_at_utc": NOW.isoformat(),
@@ -203,7 +203,8 @@ def test_legacy_three_stream_status_remains_loadable(tmp_path):
         "streams": {k: "ok" for k in ("users", "classifications", "talks")},
     }
     (tmp_path / "refresh_status.json").write_text(json.dumps(status))
-    assert refresh.load_status(tmp_path) == status
+    with pytest.raises(ValueError, match="status"):
+        refresh.load_status(tmp_path)
 
 
 def test_markers_on_every_activity_page_and_all_intervals(monkeypatch, tmp_path):
@@ -263,21 +264,19 @@ def test_markers_on_every_activity_page_and_all_intervals(monkeypatch, tmp_path)
                 assert 100 < fig.layout.yaxis.range[1] < 5000
 
 
-def test_legacy_v1_snapshot_remains_usable_and_upgradable(tmp_path):
-    old = publish_launches({END: 1}, through=END, now=NOW, root=tmp_path)
+def test_v1_count_only_snapshot_rejected_and_not_overwritten(tmp_path):
+    publish_launches({END: 1}, through=END, now=NOW, root=tmp_path)
     path = tmp_path / "project_launches.json"
     doc = json.loads(path.read_text())
-    doc["format"] = project_launches.LEGACY_FORMAT
+    doc["format"] = "ZOONIVERSE_PROJECT_LAUNCHES_V1"
     doc["launches"] = [[day, count] for day, count, _ in doc["launches"]]
     path.write_text(json.dumps(doc))
-    loaded = load_launches(root=tmp_path)
-    assert loaded.counts() == old.counts()
-    assert loaded.names_for(END) == ()
-    new = publish_launches(
-        {END: 1}, names={END: ["Galaxy Zoo"]}, through=END, now=NOW, root=tmp_path
-    )
-    assert new.names_for(END) == ("Galaxy Zoo",)
-    assert load_launches(root=tmp_path) == new
+    original = path.read_bytes()
+    with pytest.raises(ValueError, match="envelope"):
+        load_launches(root=tmp_path)
+    with pytest.raises(ValueError, match="envelope"):
+        publish_launches({END: 1}, through=END, now=NOW, root=tmp_path)
+    assert path.read_bytes() == original
 
 
 def test_names_must_be_public_safe_and_consistent_with_counts(tmp_path):

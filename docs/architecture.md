@@ -33,9 +33,7 @@ An independent `project_launches.json` stores sparse, validated daily counts
 and available non-private public titles for approved Panoptes launches. It is
 collected in a fourth refresh stage, atomically published and plotted as dated
 markers on all three activity charts and is also summarized on
-the **Projects** page without entering the anomaly detector or affecting activity totals. V1 count-only snapshots remain readable; missing
-overlays cannot prevent normal graphs from rendering. See
-[Project launch markers](project_launch_markers.md).
+the **Projects** page without entering the anomaly detector or affecting activity totals.
 
 Dashboard snapshots cannot be shared across independent container replicas unless
 those replicas share the **same** POSIX locking-capable volume; deploy one replica.
@@ -54,8 +52,7 @@ The separate `zooniverse_dashboard.anomalies` package performs rolling NB2
 analysis on validated daily JSON snapshots, **not** on API responses or
 individual records. Users use a calendar-aware model; Classifications and
 Talk use baseline NB2. Daily model surprise and rolling historical rarity
-are preserved separately and grouped into episodes. The old weekday-MAD
-chart detector is no longer used.
+are preserved separately and grouped into episodes.
 
 The `refresh-data` CLI and Dash **Refresh data** button share a single
 refresh-then-rebuild pipeline. For the browser, Dash schedules a detached worker that writes durable progress
@@ -135,3 +132,38 @@ needed. The resulting bar/line charts share the browser-tab UTC viewport with
 the activity charts using the same Plotly `history_zoom` metadata. The first
 and last calendar periods retain their actual, potentially incomplete coverage.
 See [Projects](projects.md).
+
+
+## Maintenance and extension boundaries
+
+The page refactor produced a deliberate distinction between **specification**
+and **implementation**. `page_specs.PageSpec` declares a chart page's cards,
+windows, aggregation options, chart types and permitted optional layers.
+`page_components.build_metric_page` renders common Dash structure. The
+source adapters in `ui.py` and `projects_ui.py` still load their respective
+snapshot models, compute summary counts and construct different Plotly traces.
+This avoids coupling UI presentation to the dense activity and sparse launch
+counting contracts.
+
+`chart_data.group_daily` performs shared calendar bucketing but requires
+explicit validated coverage for sparse launch series. `periods.covered_period_total`
+provides common coverage semantics, not a generic count provider.
+`chart_geometry.py` and `figure_layout.py` share Plotly geometry, X-axis
+selection and zoom metadata without merging unrelated figure builders.
+
+`storage.py` supplies atomic, private filesystem publication. Each source
+continues to own its own schema, validation and size limits. Refresh remains
+serialized and can report partial failures; independently valid snapshots
+are never discarded because another source is unavailable.
+
+There is **no generic data-source or anomaly-detector plugin framework**.
+Adding a new source requires explicit collection, schema, refresh and UI
+integration; adding a detector requires changes to the offline catalog and
+potentially its episode format. The authoritative deployment supports one
+canonical persisted schema per data type, not chains of old-format readers.
+
+For implementation procedures, follow [Maintainer handbook](maintainers.md),
+[Dash introduction](dash_development.md), [Pages](extending_pages.md),
+[Data sources](extending_data_sources.md), and
+[Anomaly extensions](extending_anomalies.md). For code and test conventions,
+see [Development practices](development_practices.md).

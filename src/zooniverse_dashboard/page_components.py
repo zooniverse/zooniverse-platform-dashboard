@@ -56,14 +56,14 @@ class PageSnapshot(Protocol):
     last_modified : datetime.datetime
         Timestamp of the most recent published snapshot.
     history_days : int or None
-        Requested historical window, or ``None`` for legacy activity data.
+        Requested historical window; zero means all available history.
     """
 
     first: date
     last: date
     as_of: date
     last_modified: datetime
-    history_days: int | None
+    history_days: int
 
 
 def _choices(options: tuple[Choice, ...]) -> list[dict[str, str]]:
@@ -302,8 +302,6 @@ def build_metric_page(
     stale_days = max(0, (datetime.now(timezone.utc).date() - snapshot.as_of).days)
     if snapshot.history_days == 0:
         collected_range = "All available"
-    elif snapshot.history_days is None:
-        collected_range = "Legacy / unknown"
     else:
         collected_range = f"Last {snapshot.history_days} days"
     provider = spec.provider.upper() if uppercase_provider else spec.provider

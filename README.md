@@ -25,7 +25,15 @@ architecture, limitations, and navigation to the full guides:
 - [Anomaly detector](docs/anomaly_detection.md) — model assumptions,
   thresholds, calibration, and episode interpretation.
 - [Operations](docs/operations.md) and [privacy](docs/privacy.md).
-- [Documentation publishing](docs/publishing.md) — GitHub Pages setup.
+- [Maintainer handbook](docs/maintainers.md) — module responsibilities, safety
+  invariants, release checks, and extension guides.
+- [Dash introduction](docs/dash_development.md) — framework concepts and the
+  dashboard's routing, callbacks and browser assets.
+- [Adding pages](docs/extending_pages.md),
+  [data sources](docs/extending_data_sources.md), and
+  [anomaly methods](docs/extending_anomalies.md) — step-by-step development guides.
+- Documentation publication is configured in `.github/workflows/docs.yml`;
+  its tagged-release workflow builds and deploys the Sphinx site.
 
 When enabled by the repository maintainers, the Sphinx site is published at
 <https://zooniverse.github.io/zooniverse-platform-dashboard/>. Until then, the

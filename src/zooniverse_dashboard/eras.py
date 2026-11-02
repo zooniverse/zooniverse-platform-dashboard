@@ -6,10 +6,9 @@ retains individual classifications, volunteers, project identifiers or Talk
 message bodies. Only daily counts and their reported totals are returned.
 
 The same :class:`ClassificationProbe` describes either endpoint; ``CommentProbe``
-is an alias of that class, not a different response schema. Short diagnostic
-windows, configured history windows and all-time history have distinct
-size and calendar limits. Full-history and configured-history responses must
-have totals equal to the sum of returned daily buckets before use.
+is an alias of that class, not a different response schema. Configured-history
+and all-time requests have bounded response sizes and calendar spans. Both
+paths reconcile reported totals with the sum of daily buckets.
 
 See Also
 --------
@@ -29,7 +28,7 @@ import requests
 
 ERAS_CLASSIFICATIONS_URL: Final[str] = "https://eras.zooniverse.org/classifications"
 ERAS_COMMENTS_URL: Final[str] = "https://eras.zooniverse.org/comments"
-MAX_PROBE_DAYS: Final[int] = 35
+MAX_PARSE_BUCKETS: Final[int] = 35
 MAX_RESPONSE_BYTES: Final[int] = 128_000
 MAX_FULL_HISTORY_DAYS: Final[int] = 35 * 366
 MAX_FULL_RESPONSE_BYTES: Final[int] = 1_500_000
@@ -157,7 +156,7 @@ def _utc_bucket(value: Any) -> date:
 
 
 def parse_classifications(
-    payload: Any, *, start: date, end: date, max_buckets: int = MAX_PROBE_DAYS
+    payload: Any, *, start: date, end: date, max_buckets: int = MAX_PARSE_BUCKETS
 ) -> ClassificationProbe:
     """Validate a platform-wide ERAS response without retaining extra fields.
 
@@ -176,7 +175,8 @@ def parse_classifications(
     end : datetime.date
         Last allowed UTC calendar day, inclusive.
     max_buckets : int, optional
-        Maximum number of daily rows permitted; defaults to :data:`MAX_PROBE_DAYS`.
+        Maximum number of daily rows permitted for direct parsing. Full and
+        configured-history callers explicitly pass their corresponding limits.
 
     Returns
     -------
@@ -327,54 +327,6 @@ def _request_daily_counts(
             client.close()
 
 
-def _fetch_aggregate_counts(
-    start: date,
-    end: date,
-    *,
-    endpoint: str,
-    session: requests.Session | None = None,
-) -> ClassificationProbe:
-    """Fetch a short, inclusive UTC date window of aggregate ERAS counts.
-
-    Parameters
-    ----------
-    start : datetime.date
-        First day in the requested range.
-    end : datetime.date
-        Last day in the requested range, inclusive. The total window is limited
-        to :data:`MAX_PROBE_DAYS` days.
-    endpoint : str
-        Fixed ERAS classifications or comments endpoint.
-    session : requests.Session or None, optional
-        Optional reusable HTTP session.
-
-    Returns
-    -------
-    :class:`ClassificationProbe`
-        Validated daily count buckets and the reported ERAS total.
-
-    Raises
-    ------
-    ValueError
-        If the dates are invalid, reversed, or outside the permitted window.
-    ErasResponseError
-        If the HTTP request or aggregate response validation fails.
-    """
-    if (
-        not isinstance(start, date)
-        or not isinstance(end, date)
-        or start > end
-        or not 1 <= (end - start).days + 1 <= MAX_PROBE_DAYS
-    ):
-        raise ValueError(f"choose a valid window of 1–{MAX_PROBE_DAYS} UTC days")
-    payload = _request_daily_counts(
-        endpoint,
-        {"period": "day", "start_date": start.isoformat(), "end_date": end.isoformat()},
-        session=session,
-    )
-    return parse_classifications(payload, start=start, end=end)
-
-
 def _fetch_full_history(
     through: date,
     *,
@@ -421,99 +373,9 @@ def _fetch_full_history(
     return parse_full_history(payload, through=through)
 
 
-def fetch_classifications(
-    start: date, end: date, *, session: requests.Session | None = None
-) -> ClassificationProbe:
-    """Fetch a short window of platform-wide classification counts.
-
-    Parameters
-    ----------
-    start : datetime.date
-        First UTC date of the requested window, inclusive.
-    end : datetime.date
-        Last UTC date of the requested window, inclusive. Up to
-        :data:`MAX_PROBE_DAYS` days may be requested.
-    session : requests.Session or None, optional
-        Optional reusable HTTP session.
-
-    Returns
-    -------
-    :class:`ClassificationProbe`
-        Validated daily classification aggregates, without volunteer records.
-
-    Raises
-    ------
-    ValueError
-        If the window is invalid or too long.
-    ErasResponseError
-        If the public request or aggregate validation fails.
-    """
-    return _fetch_aggregate_counts(start, end, endpoint=ERAS_CLASSIFICATIONS_URL, session=session)
-
-
 # ERAS has the same documented response shape for classifications and comments.
 # This is a common aggregate representation; it is not a volunteer-level object.
 CommentProbe: TypeAlias = ClassificationProbe
-
-
-def parse_comments(payload: Any, *, start: date, end: date) -> CommentProbe:
-    """Parse an ERAS Talk comment response using the shared count schema.
-
-    Only the approved total and day/count fields are retained; the response
-    format is the same as for classifications. Unlike full-history parsing,
-    short-range parsing does not enforce total-versus-daily reconciliation.
-
-    Parameters
-    ----------
-    payload : typing.Any
-        Decoded ERAS ``/comments`` JSON response.
-    start : datetime.date
-        First permitted UTC date, inclusive.
-    end : datetime.date
-        Last permitted UTC date, inclusive.
-
-    Returns
-    -------
-    :class:`ClassificationProbe`
-        Aggregate Talk comment buckets in the shared representation
-        (also known as ``CommentProbe``).
-
-    Raises
-    ------
-    ErasResponseError
-        If the response is malformed, too large in daily bucket count, or
-        contains invalid daily data.
-    """
-    return parse_classifications(payload, start=start, end=end)
-
-
-def fetch_comments(
-    start: date, end: date, *, session: requests.Session | None = None
-) -> CommentProbe:
-    """Fetch a short window of platform-wide Talk comment counts.
-
-    Parameters
-    ----------
-    start : datetime.date
-        First UTC day in the requested interval.
-    end : datetime.date
-        Last UTC day in the requested interval, inclusive.
-    session : requests.Session or None, optional
-        Optional reusable HTTP session.
-
-    Returns
-    -------
-    :class:`ClassificationProbe`
-        Validated aggregate comments response (``CommentProbe`` alias).
-
-    Raises
-    ------
-    ValueError
-        If the short requested window is invalid or exceeds the day limit.
-    ErasResponseError
-        If ERAS fails or the returned counts are malformed.
-    """
-    return _fetch_aggregate_counts(start, end, endpoint=ERAS_COMMENTS_URL, session=session)
 
 
 def fetch_full_classifications(

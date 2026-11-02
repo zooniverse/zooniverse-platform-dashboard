@@ -7,8 +7,8 @@ exact timestamps never leave the database. Titles are user-authored context;
 they must be escaped when displayed and never passed to anomaly detection.
 
 The launch snapshot format is intentionally **sparse**: dates without launches
-are omitted. The V2 JSON stores names alongside approved counts, and the V1
-count-only format remains readable. Validated snapshots are written atomically
+are omitted. Each JSON row stores approved counts and available public names. Only the
+current V2 schema is accepted. Validated snapshots are written atomically
 into the configured analytics data directory, separately from activity data.
 
 See Also
@@ -39,7 +39,6 @@ from zooniverse_dashboard.config import data_dir, panoptes_url
 from zooniverse_dashboard.snapshots import MAX_DAYS
 from zooniverse_dashboard.storage import atomic_publish_json
 
-LEGACY_FORMAT: Final[str] = "ZOONIVERSE_PROJECT_LAUNCHES_V1"
 FORMAT: Final[str] = "ZOONIVERSE_PROJECT_LAUNCHES_V2"
 MAX_BYTES: Final[int] = 250_000
 MAX_TITLE_CHARS: Final[int] = 160
@@ -132,7 +131,7 @@ class LaunchSnapshot:
         -------
         tuple[str, ...]
             Sanitized public display names recorded for ``day``, or an empty
-            tuple if the date has no stored names (including legacy V1 snapshots).
+            tuple if the date has no stored public names.
             No private project names are included.
         """
         return dict(self.names_by_day).get(day, ())
@@ -331,12 +330,12 @@ def launch_path(root: Path | None = None) -> Path:
 
 
 def _parse(doc: object) -> LaunchSnapshot:
-    """Validate a decoded V1 or V2 launch document into an immutable snapshot.
+    """Validate a decoded current-format launch document into an immutable snapshot.
 
     Validate the exact envelope keys, reporting-window bounds, UTC modification
     timestamp, strictly ascending sparse positive launch counts, and public-name
-    constraints. V1 rows contain only date/count pairs; V2 rows also contain
-    public names. An all-time snapshot must begin at the first known launch or,
+    constraints. Every row contains a date, count, and public names list.
+    An all-time snapshot must begin at the first known launch or,
     for an empty series, cover only the cutoff day.
 
     Parameters
@@ -366,17 +365,8 @@ def _parse(doc: object) -> LaunchSnapshot:
         "history_days",
         "launches",
     }
-    if (
-        not isinstance(doc, dict)
-        or set(doc) != keys
-        or doc["format"]
-        not in {
-            FORMAT,
-            LEGACY_FORMAT,
-        }
-    ):
+    if not isinstance(doc, dict) or set(doc) != keys or doc["format"] != FORMAT:
         raise ValueError("Invalid project launch snapshot envelope")
-    legacy: bool = doc["format"] == LEGACY_FORMAT
     days: object = doc["history_days"]
     if type(days) is not int or not 0 <= days <= MAX_DAYS:
         raise ValueError("Invalid project launch history limit")
@@ -400,7 +390,7 @@ def _parse(doc: object) -> LaunchSnapshot:
     named: list[tuple[date, tuple[str, ...]]] = []
     prev: date | None = None
     for row in rows:
-        if not isinstance(row, list) or len(row) != (2 if legacy else 3):
+        if not isinstance(row, list) or len(row) != 3:
             raise ValueError("Invalid project launch bucket")
         day: date = date.fromisoformat(row[0])
         count: object = row[1]
@@ -412,8 +402,7 @@ def _parse(doc: object) -> LaunchSnapshot:
             or count < 1
         ):
             raise ValueError("Invalid project launch bucket")
-        if not legacy:
-            named.append((day, _validate_names(row[2], count=count)))
+        named.append((day, _validate_names(row[2], count=count)))
         pairs.append((day, count))
         prev = day
     if days == 0 and pairs and pairs[0][0] != first:
@@ -427,7 +416,7 @@ def load_launches(*, root: Path | None = None) -> LaunchSnapshot:
     """Load a validated project-launch snapshot from local JSON storage.
 
     Refuse symlinks, missing files and files larger than :data:`MAX_BYTES`.
-    The parser accepts both legacy count-only V1 and count-and-name V2 formats.
+    The parser accepts only the current V2 count-and-public-name schema.
     A missing or invalid overlay can be treated as nonfatal by the chart caller;
     this function itself raises rather than returning an empty snapshot.
 

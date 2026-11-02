@@ -97,18 +97,23 @@ def test_incomplete_history_is_unavailable(tmp_path):
     assert periods["previous-year"].count is None
 
 
-def test_legacy_snapshot_requires_history_upgrade(tmp_path):
+def test_snapshot_requires_current_coverage_metadata(tmp_path):
     values = sample()
     publish_snapshot("classifications", values, through=max(values), root=tmp_path, now=NOW)
     path = tmp_path / "classifications.json"
     doc = json.loads(path.read_text())
     del doc["history_complete"]
     path.write_text(json.dumps(doc))
-    snap = load_snapshot("classifications", root=tmp_path)
-    assert snap.history_complete is False
+    with pytest.raises(ValueError, match="envelope"):
+        load_snapshot("classifications", root=tmp_path)
     doc["history_complete"] = "yes"
     path.write_text(json.dumps(doc))
     with pytest.raises(ValueError, match="history coverage"):
+        load_snapshot("classifications", root=tmp_path)
+    doc["history_complete"] = False
+    del doc["history_days"]
+    path.write_text(json.dumps(doc))
+    with pytest.raises(ValueError, match="envelope"):
         load_snapshot("classifications", root=tmp_path)
 
 

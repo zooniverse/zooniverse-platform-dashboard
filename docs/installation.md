@@ -9,16 +9,12 @@ saved JSON snapshots; they do not make database or ERAS requests on each visit.
 - Python **3.11 or newer** and Git; Python 3.12 is the Docker image's version.
 - Access to the `zooniverse/zooniverse-platform-dashboard` GitHub repository.
 - A **read-only** PostgreSQL credential and network access (including any
-  required IP allowlist/VPN) to the Panoptes database, *only if you intend to
-  collect registrations*. Ask the Panoptes database administrator for the
-  authorized hostname, database, and role; do not invent or reuse write-access
-  credentials.
+  required IP allowlist/VPN) to the Panoptes database.
 - Outbound HTTPS access to public ERAS aggregate endpoints for the
   Classifications and Talk collectors.
 
 A database connection is **not required to inspect already-generated
-snapshots**. Without a working Panoptes connection the Users collector cannot
-refresh; individual source failures preserve previously validated snapshots.
+snapshots**.
 
 ## 1. Obtain the source and install Python dependencies
 
@@ -108,13 +104,7 @@ refresh-data
 
 This CLI runs the same ingestion → anomaly-rebuild workflow. Its output goes
 to the terminal and its status remains available to the UI. Refresh requests
-are protected by a shared lock and a one-hour cooldown. The app does **not**
-run scheduled collection jobs. For command examples and failure behavior see
-[Command-line reference](command_line.md) and [Operations](operations.md).
-
-With a short history limit the dashboard may display KPI charts but have too
-little history for NB2 detection; anomaly analysis typically needs at least
-911 daily buckets for training and calibration warm-up.
+are protected by a shared lock and a one-hour cooldown. For command examples and failure behavior see [Command-line reference](command_line.md) and [Operations](operations.md).
 
 ## 4. Validate the Docker image before a release
 
@@ -132,9 +122,6 @@ CSS, the non-root runtime user, and the ability to write a persistent setting
 to `/data` across a container restart. It cleans up its test container and
 volume, and prints server logs if an assertion fails. **It does not collect
 live aggregates** or establish a production database connection.
-
-The same smoke test runs automatically on pull requests and main-branch pushes,
-and is a prerequisite for version-tag image publication.
 
 ## 5. Optional: run with Docker Compose
 
@@ -159,21 +146,3 @@ The container must not be exposed directly to the internet. For any shared
 deployment, place an authenticated TLS ingress/SSO/VPN in front of the **entire**
 dashboard, including its refresh control. See [Privacy](privacy.md) and
 [Operations](operations.md) before deploying.
-
-## 6. Developer checks
-
-```bash
-black --check app.py src tests
-ruff check app.py src tests
-pytest -q
-sphinx-build -b html docs docs/_build/html
-```
-
-To read the documentation locally:
-
-```bash
-python -m webbrowser -t file://"$(pwd)"/docs/_build/html/index.html
-```
-
-Do not add live database tests, write credentials into fixtures, or assume
-an ERAS zero-filled date proves zero activity.

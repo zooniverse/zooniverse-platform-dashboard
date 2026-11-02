@@ -70,9 +70,6 @@ class CalendarPeriod:
     count: int | None
 
 
-# Backward-compatible name for existing registration page imports.
-
-
 def _previous_month_start(day: date) -> date:
     """Find the first day of the month before the given UTC date.
 

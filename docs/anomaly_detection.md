@@ -3,14 +3,12 @@
 The Anomalies page provides **statistical inspection hints** for unusual daily
 platform activity. It is **not** an intrusion detector, outage monitor, causal
 analysis, or assertion that an individual user did something suspicious. Its
-purpose is to replace the older weekday-median/MAD chart markers with a smaller,
-explainable set of **episodes** that a dashboard reader can inspect quickly.
+purpose is to group unusual daily behavior into explainable **episodes** that
+readers can investigate in context.
 
-This page documents the *implemented* detector in
-`src/zooniverse_dashboard/anomalies/`, not every method investigated on the
-`research/anomaly-models` branch. The production implementation does **not**
-run STL, change-point detection, active learning, or the original weekday-MAD
-algorithm.
+This page documents the NB2 detector implemented in
+`src/zooniverse_dashboard/anomalies/`. It does not use STL, change-point
+detection, active learning, or individual-level data.
 
 ## Inputs, outputs, and execution boundary
 

@@ -141,9 +141,8 @@ def refresh_lock(root: Path | None = None) -> Iterator[None]:
 def load_status(root: Path | None = None) -> dict[str, Any] | None:
     """Load and validate the durable collection-status document.
 
-    Read ``refresh_status.json`` without changing it. Both the legacy
-    three-activity-source format and the current format including
-    ``project_launches`` are accepted. Expected states are ``running``, ``ok``,
+    Read ``refresh_status.json`` without changing it. The status must include
+    all four streams, including ``project_launches``. Expected states are ``running``, ``ok``,
     and ``partial_failure``; each included stream is ``pending``, ``ok`` or
     ``failed``. Present timestamps must carry an explicit UTC offset.
 
@@ -183,7 +182,7 @@ def load_status(root: Path | None = None) -> dict[str, Any] | None:
         or doc["format"] != STATUS_FORMAT
         or doc["state"] not in {"running", "ok", "partial_failure"}
         or not isinstance(doc["streams"], dict)
-        or set(doc["streams"]) not in (set(SOURCES), set(REFRESH_STREAMS))
+        or set(doc["streams"]) != set(REFRESH_STREAMS)
         or any(value not in {"pending", "ok", "failed"} for value in doc["streams"].values())
     ):
         raise ValueError("Invalid refresh status")

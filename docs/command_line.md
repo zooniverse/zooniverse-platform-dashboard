@@ -2,8 +2,7 @@
 
 The installed commands operate on the same persistent snapshot directory as
 the dashboard. Activate the installed Python environment before running them,
-or execute them inside the Docker Compose service. **No command returns
-volunteer-level data.**
+or execute them inside the Docker Compose service.
 
 ## Commands at a glance
 
@@ -13,9 +12,9 @@ volunteer-level data.**
 | `set-date-limit` | Optional `DAYS` | Writable local snapshot directory only | Print effective history limit or persist a new one |
 | `rebuild-anomalies` | None | Existing aggregate JSON snapshots only | Rebuild the anomaly catalog without contacting upstream systems |
 
-These are the packaged console scripts defined by `pyproject.toml`. The old
-`zooniverse-dashboard backfill` command and incremental 14-day reconciliation
-are **not** part of the current workflow.
+These are the packaged console scripts defined by `pyproject.toml`.
+The application always re-fetches the selected history window; it does not
+incrementally backfill or reconcile individual recent days.
 
 ## `refresh-data`
 
@@ -104,32 +103,3 @@ docker compose -f deploy/compose.yml exec dashboard rebuild-anomalies
 The commands above update **the container's `/data` volume**, not your local
 `.local/data`. Do not refresh two separate deployments expecting their files
 to be synchronized.
-
-## Project-launch diagnostic (developer only)
-
-```bash
-python scripts/probe_project_launches.py
-```
-
-This opt-in script checks the schema and historical completeness of the
-Panoptes project-launch date fields. It runs **read-only** SQL, prints table
-metadata and aggregate counts by year/day, and does not retrieve individual
-project rows, titles, or owners. It requires the configured authorized
-read-only `DB_URL_PANOPTES` connection and must not be run against a database
-without permission. It does **not** write `project_launches.json` or update the
-browser dashboard. See [Project launch markers](project_launch_markers.md)
-for the production collector's separate, validated snapshot contract.
-
-## Related developer utilities
-
-These are development and documentation checks, not data collection APIs:
-
-```bash
-pytest -q
-black --check app.py src tests scripts/probe_project_launches.py docs/conf.py
-ruff check app.py src tests scripts/probe_project_launches.py docs/conf.py
-sphinx-build -b html -W --keep-going docs docs/_build/html
-```
-
-None of the commands requires an API key for ERAS; the only sensitive runtime
-credential is the server-side Panoptes database URL.
