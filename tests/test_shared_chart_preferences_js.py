@@ -11,8 +11,7 @@ import pytest
 def test_cross_page_chart_preferences_with_projects_fallback():
     """Test hydration, user changes, and unsupported Projects intervals."""
     path = (
-        Path(__file__).resolve().parents[1]
-        / "src/zooniverse_dashboard/assets/chart_preferences.js"
+        Path(__file__).resolve().parents[1] / "src/zooniverse_dashboard/assets/chart_preferences.js"
     )
     script = r"""
 const fs = require('node:fs');

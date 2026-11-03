@@ -30,8 +30,8 @@ from pathlib import Path
 from typing import Any
 
 from dash import (
-    Dash,
     ClientsideFunction,
+    Dash,
     Input,
     Output,
     State,
