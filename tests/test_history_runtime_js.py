@@ -29,7 +29,9 @@ const document = {
     readyState: 'loading',
     documentElement: {},
     addEventListener: (event, callback) => { callbacks[event] = callback; },
+    getElementById: () => null,
     querySelectorAll: selector => {
+        if (selector === '.history-radio-group') return [];
         assert.equal(selector, '.history-graph .js-plotly-plot');
         queries += 1;
         return plots;
@@ -43,6 +45,10 @@ function plot(name) {
     const listeners = new Map();
     return {
         name,
+        closest: selector => {
+            assert.equal(selector, '.history-graph');
+            return {id: `${name}-graph`};
+        },
         layout: {meta: {history_zoom: {
             source: name, window: '90', revision: name + '-r1',
             first: '2024-01-01', last_exclusive: '2025-01-01',
@@ -68,6 +74,7 @@ frames.shift()();
 assert.equal(queries, 1);
 assert.equal(plots[0].listenerCount('plotly_relayout'), 2);
 assert.equal(plots[0].listenerCount('plotly_afterplot'), 1);
+
 // Multiple rapid DOM changes coalesce into a single scan, with no duplicates.
 observer.callback();
 observer.callback();
@@ -82,6 +89,7 @@ frames.shift()();
 assert.equal(observers, 1);
 assert.equal(plots[1].listenerCount('plotly_relayout'), 2);
 assert.equal(plots[1].listenerCount('plotly_afterplot'), 1);
+
 """
     subprocess.run(
         [

@@ -108,6 +108,7 @@ or Line/Bars, the new figure restores the same dates: numeric grouped-bar
 positions are converted via their actual period boundaries (including leap
 years and partial periods). The same stored dates are restored on Users,
 Classifications, Talk and Projects, including after normal page navigation or reload.
+
 A source with shorter coverage clips the *displayed* range without changing
 what is stored, and Y scaling remains specific to each chart. Explicitly
 changing **Visible time window** clears the shared manual zoom; Plotly's
@@ -115,7 +116,17 @@ changing **Visible time window** clears the shared manual zoom; Plotly's
 precedence and adopts that episode's view as the new shared range. When
 session storage is unavailable, charts retain their original independent
 behavior. No remote queries or new snapshot fields are required, and only
-two dates (never per-user or project data) are persisted in the browser.
+the UTC viewport bounds are persisted for zoom.
+
+**Shared chart controls:** All four metric pages mount radio controls using the
+same Dash component IDs. Dash's built-in session persistence retains Line/Bars
+and aggregation preferences across navigation. An app-level ``dcc.Store`` and
+clientside callbacks synchronize these selections when a page mounts, without
+waiting for its Plotly figure. Each page's ``PageSpec`` defines its supported
+intervals. On Projects, a saved Day/Week preference is displayed as Month but
+is not overwritten; explicitly choosing Year or another supported interval
+updates the shared choice. Visible-window presets remain page-specific.
+The stored state contains only these display preferences, not source records.
 
 The project-launch overlay uses true daily dates on line charts. On grouped
 bar charts, a launch is placed at its proportional calendar-day position

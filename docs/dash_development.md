@@ -17,7 +17,8 @@ Framework references: [Layout](https://dash.plotly.com/layout),
 **Layouts** are trees of Python components. `dash.html` represents HTML elements;
 `dash.dcc` provides controls, browser stores, and `dcc.Graph`. Component IDs
 connect the layout to callbacks. In this dashboard, the shared page renderer
-derives IDs from the page key, such as `users-interval` and `users-graph`.
+uses page-specific IDs for windows and graphs (`users-window`, `users-graph`),
+while the interval and plot-style controls have shared IDs on every metric page.
 
 **Callbacks** map one or more `Input` properties to `Output` properties;
 `State` supplies values without triggering execution. For example:
@@ -59,9 +60,11 @@ appropriate than additional server callbacks.
   `chart_data.py`, `chart_geometry.py`, and `figure_layout.py`.
 - `pages/anomalies.py` provides a separate inspection layout and callbacks,
   outside the metric-page specification.
-- `assets/styles.css` and `assets/*.js` load automatically. The shared
-  `00_history_runtime.js` attaches graph listeners used by
-  `history_zoom.js`, `history_autoscale.js`, and `episode_pointer.js`.
+- `assets/styles.css` and `assets/*.js` load automatically.
+  `chart_preferences.js` implements Dash clientside callbacks for shared chart
+  controls; `00_history_runtime.js` attaches the zoom/autoscale listeners to
+  Plotly graphs created during navigation. `episode_pointer.js` handles
+  anomaly links separately.
 
 ## Interaction flow
 
@@ -83,7 +86,12 @@ assets translate that range to absolute UTC dates and store it in the tab's
 `sessionStorage`. `layout.meta.history_zoom` provides the period boundaries
 needed to translate between date axes and equal-width numeric calendar slots.
 The saved viewport carries across activity and Projects pages; each chart
-scales its Y-axis independently.
+scales its Y-axis independently. The common ``RadioItems`` IDs use Dash
+session persistence for binning and chart type. ``dcc.Store`` and clientside
+callbacks synchronize the selected properties when a new metric page appears,
+so controls do not depend on Plotly's rendering lifecycle. A Projects page
+cannot display Day or Week: it uses Month without overwriting those saved
+activity-page preferences. Choosing Year on Projects updates the shared choice.
 
 Refreshing is a separate path: the global refresh callback admits a detached
 Python worker and polls saved progress. Remote collection and anomaly fitting
@@ -96,8 +104,9 @@ do not run in HTTP callbacks.
 - **Stable component IDs:** callbacks, JavaScript selectors, links, and graph
   metadata depend on specific IDs; changes may span Python and browser assets.
 - **Browser state:** Dash components and `dcc.Store` carry reactive state;
-  `sessionStorage` holds only the shared UTC viewport, not source records or
-  credentials.
+  `sessionStorage` holds the shared UTC viewport, while Dash session
+  persistence and `dcc.Store` retain chart preferences. None contains source
+  records or credentials.
 - **Optional layers:** `PageSpec.has_layer()` governs eligibility; the figure
   builder still supplies validated data and the actual trace.
 - **Page navigation:** Dash replaces graph elements when routes change. The

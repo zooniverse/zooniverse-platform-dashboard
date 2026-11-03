@@ -506,8 +506,8 @@ def register_history_callback(source: str) -> Callable[..., go.Figure]:
         Output(f"{source}-graph", "figure"),
         Input(f"{source}-route", "search"),
         Input(f"{source}-window", "value"),
-        Input(f"{source}-interval", "value"),
-        Input(f"{source}-plot-type", "value"),
+        Input("shared-chart-interval", "value"),
+        Input("shared-chart-plot-type", "value"),
     )
     def update(search: str | None, window: str, interval: str, plot_type: str) -> go.Figure:
         """Regenerate an activity chart after a route or control change.

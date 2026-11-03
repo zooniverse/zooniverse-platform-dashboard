@@ -155,7 +155,9 @@ def chart_controls(spec: PageSpec) -> Component:
     """Render the configured window, aggregation and chart-type selectors.
 
     Every ID is derived from ``spec.key`` and matches the existing callback
-    signatures. New pages only need additional :class:`PageSpec` choices.
+    signatures. The shared control IDs and Dash session persistence retain interval and
+    chart type across metric pages. Unsupported intervals on Projects fall
+    back to Month without changing the persisted user preference.
 
     Parameters
     ----------
@@ -183,28 +185,43 @@ def chart_controls(spec: PageSpec) -> Component:
                 ],
                 className="registration-date-control",
             ),
+            dcc.Store(
+                id="shared-chart-page",
+                data={
+                    "source": spec.key,
+                    "intervals": [item.value for item in spec.intervals],
+                    "plot_types": [item.value for item in spec.plot_types],
+                    "default_interval": spec.default_interval,
+                    "default_plot_type": spec.default_plot_type,
+                },
+            ),
+            dcc.Store(id="shared-chart-ready"),
             html.Div(
                 [
-                    html.Label("Group by", htmlFor=f"{spec.key}-interval"),
+                    html.Label("Group by", htmlFor="shared-chart-interval"),
                     dcc.RadioItems(
-                        id=f"{spec.key}-interval",
+                        id="shared-chart-interval",
                         options=_choices(spec.intervals),
                         value=spec.default_interval,
                         inline=True,
                         className="history-radio-group",
+                        persistence=True,
+                        persistence_type="session",
                     ),
                 ],
                 className="registration-date-control",
             ),
             html.Div(
                 [
-                    html.Label("Chart type", htmlFor=f"{spec.key}-plot-type"),
+                    html.Label("Chart type", htmlFor="shared-chart-plot-type"),
                     dcc.RadioItems(
-                        id=f"{spec.key}-plot-type",
+                        id="shared-chart-plot-type",
                         options=_choices(spec.plot_types),
                         value=spec.default_plot_type,
                         inline=True,
                         className="history-radio-group",
+                        persistence=True,
+                        persistence_type="session",
                     ),
                 ],
                 className="registration-date-control",

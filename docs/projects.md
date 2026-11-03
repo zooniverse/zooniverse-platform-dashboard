@@ -34,6 +34,10 @@ project titles. Collection and validation details are documented in
 - **Visible time window:** Last 12 months, Last 3 years (default), Last 5 years,
   or All available. A window is based on **calendar months**, not an
   approximation of 30 or 365 days. The range slider supports finer exploration.
+- **Shared display preferences:** Line/Bars and supported grouping choices
+  carry between metric pages within a browser tab. If Day or Week is selected
+  on an activity page, Projects uses Month without replacing that saved
+  preference; explicitly selecting Month or Year on Projects updates it.
 - **Shared zoom:** the selected absolute UTC range persists when switching
   monthly/yearly, bar/line, or navigating to Users, Classifications and Talk.
   Explicitly changing the visible-window preset or resetting Plotly axes clears

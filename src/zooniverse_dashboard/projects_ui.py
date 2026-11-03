@@ -248,8 +248,8 @@ def register_projects_callback() -> Callable[..., go.Figure]:
     @callback(
         Output("projects-graph", "figure"),
         Input("projects-window", "value"),
-        Input("projects-interval", "value"),
-        Input("projects-plot-type", "value"),
+        Input("shared-chart-interval", "value"),
+        Input("shared-chart-plot-type", "value"),
     )
     def update(window: str, interval: str, plot_type: str) -> go.Figure:
         """Regenerate the Projects figure from local launch data.

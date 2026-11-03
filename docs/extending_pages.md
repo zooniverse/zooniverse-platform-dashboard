@@ -148,11 +148,21 @@ represent the launch dates that activity graphs show as markers.
 and marker offsets. `assets/history_zoom.js` stores **absolute UTC dates**
 per browser tab and translates numeric bar positions using each figure's
 period boundaries. `history_autoscale.js` rescales each metric independently.
+The metric pages share the ``shared-chart-interval`` and
+``shared-chart-plot-type`` component IDs. ``page_components.py`` also mounts a
+``shared-chart-page`` descriptor and ``shared-chart-ready`` marker, allowing the
+Dash clientside callbacks in ``chart_preferences.js`` to restore preferences
+when navigating. Unsupported choices fall back to the page default without
+replacing the saved preference; for example, Projects only supports Month and
+Year. A new metric page using ``chart_controls()`` participates automatically.
+The window and graph IDs remain page-specific (``<source>-window`` and
+``<source>-graph``).
 Never replace the numeric grouped-bar axis with a date axis, or remove
 `layout.meta.history_zoom`, without testing navigation through all pages.
 
-Component IDs derive from page keys (`<source>-window`, `-interval`,
-`-plot-type`, `-graph`, and for activity routes `-route`). A link into an
+Window, graph, and activity-route IDs derive from page keys
+(``<source>-window``, ``<source>-graph``, ``<source>-route``). The two radio IDs
+are intentionally shared across metric pages. A link into an
 anomaly episode uses URL arguments interpreted by the activity callback.
 Changing IDs or route names may also require updating JavaScript selectors
 and episode deep links.

@@ -31,8 +31,10 @@ from typing import Any
 
 from dash import (
     Dash,
+    ClientsideFunction,
     Input,
     Output,
+    State,
     clientside_callback,
     dcc,
     html,
@@ -138,6 +140,7 @@ def create_app() -> Dash:
             dcc.Interval(id="refresh-progress-poll", interval=1_000, n_intervals=0, disabled=True),
             dcc.Interval(id="refresh-status-poll", interval=60_000, n_intervals=0),
             html.Div(id="refresh-system-status", className="refresh-system-status"),
+            dcc.Store(id="shared-chart-preferences", storage_type="session"),
             html.Main(page_container, className="page-container"),
             html.Footer(
                 "Internal Zooniverse analytics · Aggregated counts only · UTC",
@@ -145,6 +148,31 @@ def create_app() -> Dash:
             ),
         ],
         className="app-shell",
+    )
+
+    # The shared chart controls are mounted inside Dash Pages. These clientside
+    # callbacks restore saved state after a page mounts and record subsequent
+    # user selections in a session-scoped Dash Store. The hydration marker
+    # prevents a new page's defaults from overwriting the previous selection.
+    clientside_callback(
+        ClientsideFunction(namespace="zooniverse_chart", function_name="restore"),
+        Output("shared-chart-interval", "value"),
+        Output("shared-chart-plot-type", "value"),
+        Output("shared-chart-ready", "data"),
+        Input("shared-chart-page", "data"),
+        State("shared-chart-preferences", "data"),
+        State("shared-chart-interval", "value"),
+        State("shared-chart-plot-type", "value"),
+    )
+    clientside_callback(
+        ClientsideFunction(namespace="zooniverse_chart", function_name="save"),
+        Output("shared-chart-preferences", "data"),
+        Input("shared-chart-interval", "value"),
+        Input("shared-chart-plot-type", "value"),
+        State("shared-chart-page", "data"),
+        State("shared-chart-ready", "data"),
+        State("shared-chart-preferences", "data"),
+        prevent_initial_call=True,
     )
 
     @app.callback(

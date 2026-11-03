@@ -92,9 +92,15 @@ def test_activity_page_controls_cards_and_graph_are_baselined(source, monkeypatc
         ("interval", page.intervals, page.default_interval),
         ("plot-type", page.plot_types, page.default_plot_type),
     ):
-        control = _component_with_id(layout, f"{source}-{suffix}")
+        control_id = f"{source}-window" if suffix == "window" else f"shared-chart-{suffix}"
+        control = _component_with_id(layout, control_id)
         assert _options(control) == [(item.value, item.label) for item in expected]
         assert control.value == default
+        if suffix != "window":
+            assert control.persistence is True
+            assert control.persistence_type == "session"
+    assert _component_with_id(layout, "shared-chart-page").data["source"] == source
+    assert _component_with_id(layout, "shared-chart-ready") is not None
     graph = _component_with_id(layout, f"{source}-graph")
     assert graph.config["responsive"] is True
     assert graph.config["scrollZoom"] is False
@@ -113,9 +119,15 @@ def test_projects_page_controls_and_cards_are_baselined(monkeypatch):
         ("interval", spec.intervals, spec.default_interval),
         ("plot-type", spec.plot_types, spec.default_plot_type),
     ):
-        control = _component_with_id(layout, f"projects-{suffix}")
+        control_id = "projects-window" if suffix == "window" else f"shared-chart-{suffix}"
+        control = _component_with_id(layout, control_id)
         assert _options(control) == [(option.value, option.label) for option in expected]
         assert control.value == default
+        if suffix != "window":
+            assert control.persistence is True
+            assert control.persistence_type == "session"
+    assert _component_with_id(layout, "shared-chart-page").data["source"] == "projects"
+    assert _component_with_id(layout, "shared-chart-ready") is not None
     assert _component_with_id(layout, "projects-graph") is not None
 
 
