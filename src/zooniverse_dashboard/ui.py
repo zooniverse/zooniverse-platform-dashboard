@@ -532,10 +532,15 @@ def register_history_callback(source: str) -> Callable[..., go.Figure]:
             Chart with optional anomaly focus, or an unavailable-snapshot figure.
         """
         event_id = parse_qs((search or "").lstrip("?")).get("episode", [None])[0]
-        route_changed = f"{source}-route.search" in ctx.triggered_prop_ids
+        triggers = ctx.triggered_prop_ids
+        route_changed = f"{source}-route.search" in triggers
         controls_changed = any(
-            f"{source}-{field}.value" in ctx.triggered_prop_ids
-            for field in ("window", "interval", "plot-type")
+            prop in triggers
+            for prop in (
+                f"{source}-window.value",
+                "shared-chart-interval.value",
+                "shared-chart-plot-type.value",
+            )
         )
         focus = (
             event_by_id(event_id, source=source)

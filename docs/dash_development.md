@@ -86,9 +86,9 @@ assets translate that range to absolute UTC dates and store it in the tab's
 `sessionStorage`. `layout.meta.history_zoom` provides the period boundaries
 needed to translate between date axes and equal-width numeric calendar slots.
 The saved viewport carries across activity and Projects pages; each chart
-scales its Y-axis independently. The common ``RadioItems`` IDs use Dash
-session persistence for binning and chart type. ``dcc.Store`` and clientside
-callbacks synchronize the selected properties when a new metric page appears,
+scales its Y-axis independently. The shared ``RadioItems`` IDs use the app-level session-scoped ``dcc.Store``
+as their only persisted source for binning and chart type. Clientside callbacks
+restore values when a new metric page appears and save subsequent selections,
 so controls do not depend on Plotly's rendering lifecycle. A Projects page
 cannot display Day or Week: it uses Month without overwriting those saved
 activity-page preferences. Choosing Year on Projects updates the shared choice.
@@ -104,8 +104,8 @@ do not run in HTTP callbacks.
 - **Stable component IDs:** callbacks, JavaScript selectors, links, and graph
   metadata depend on specific IDs; changes may span Python and browser assets.
 - **Browser state:** Dash components and `dcc.Store` carry reactive state;
-  `sessionStorage` holds the shared UTC viewport, while Dash session
-  persistence and `dcc.Store` retain chart preferences. None contains source
+  `sessionStorage` holds the shared UTC viewport, while the app-level
+  session ``dcc.Store`` alone persists chart preferences. None contains source
   records or credentials.
 - **Optional layers:** `PageSpec.has_layer()` governs eligibility; the figure
   builder still supplies validated data and the actual trace.

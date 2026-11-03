@@ -4,19 +4,21 @@ AutoAPI statically parses the modules in ``src/zooniverse_dashboard`` instead
 of importing them, so generating API pages does not create the Dash app, open
 a Panoptes connection, or request ERAS data. The narrative guides use MyST
 Markdown alongside the reStructuredText API index; Napoleon interprets the
-NumPy-style sections in source docstrings. The ``release`` setting is kept in
-sync with the distribution version in ``pyproject.toml`` when a release is cut.
+NumPy-style sections in source docstrings. The ``release`` value is read
+from ``pyproject.toml``, so it matches the package version automatically.
 
 The root development launcher ``app.py`` and Docker smoke-test script are
 outside AutoAPI's package scan. Their usage is described in the installation
 and operations guides.
 """
 
+import tomllib
 from pathlib import Path
 
 project: str = "Zooniverse Platform Dashboard"
 author: str = "Zooniverse contributors"
-release: str = "0.1.0"
+with (Path(__file__).resolve().parents[1] / "pyproject.toml").open("rb") as project_file:
+    release: str = tomllib.load(project_file)["project"]["version"]
 root_doc: str = "index"
 source_suffix: dict[str, str] = {".rst": "restructuredtext", ".md": "markdown"}
 extensions: list[str] = ["myst_parser", "autoapi.extension", "sphinx.ext.napoleon"]

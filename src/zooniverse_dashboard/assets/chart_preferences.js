@@ -1,6 +1,7 @@
-/* Global activity chart preferences managed through Dash callbacks.
- * The app's dcc.Store persists across Pages navigation in this browser tab.
- * Dash, rather than DOM mutation observers, owns the RadioItems values.
+/* Global chart preferences managed through Dash callbacks.
+ * The app-level session dcc.Store is the only persisted preference state.
+ * RadioItems are transient: restoring a page derives their values from the
+ * Store (or that page's defaults), not from a prior component instance.
  */
 window.dash_clientside = Object.assign({}, window.dash_clientside, {
     zooniverse_chart: {
@@ -13,17 +14,13 @@ window.dash_clientside = Object.assign({}, window.dash_clientside, {
             const desiredInterval = saved && saved.interval;
             const desiredPlot = saved && saved.plot_type;
             const interval = page.intervals.includes(desiredInterval)
-                ? desiredInterval
-                : page.intervals.includes(currentInterval)
-                    ? currentInterval : page.default_interval;
+                ? desiredInterval : page.default_interval;
             const plot = page.plot_types.includes(desiredPlot)
-                ? desiredPlot
-                : page.plot_types.includes(currentPlot)
-                    ? currentPlot : page.default_plot_type;
+                ? desiredPlot : page.default_plot_type;
             // Projects cannot display Day/Week. Treat Month as a visual
             // fallback, *not* an explicit replacement of the saved preference.
-            const fallback = Boolean(saved && desiredInterval
-                && !page.intervals.includes(desiredInterval));
+            const fallback = page.source === "projects"
+                && (desiredInterval === "daily" || desiredInterval === "weekly");
             return [
                 interval === currentInterval ? noop : interval,
                 plot === currentPlot ? noop : plot,

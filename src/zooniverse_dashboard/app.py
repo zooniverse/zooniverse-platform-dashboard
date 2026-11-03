@@ -150,10 +150,10 @@ def create_app() -> Dash:
         className="app-shell",
     )
 
-    # The shared chart controls are mounted inside Dash Pages. These clientside
-    # callbacks restore saved state after a page mounts and record subsequent
-    # user selections in a session-scoped Dash Store. The hydration marker
-    # prevents a new page's defaults from overwriting the previous selection.
+    # The chart preference Store is authoritative; page-local RadioItems are
+    # transient. Restore its values on mounting a metric page and save subsequent
+    # choices. The hydration marker prevents new-page defaults from overwriting
+    # the selection before restoration finishes.
     clientside_callback(
         ClientsideFunction(namespace="zooniverse_chart", function_name="restore"),
         Output("shared-chart-interval", "value"),

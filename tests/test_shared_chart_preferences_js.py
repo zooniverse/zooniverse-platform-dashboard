@@ -71,8 +71,26 @@ assert.equal(projYear[0],'yearly');
 assert.equal(projYear[1],'bars');
 assert.equal(projYear[2].fallback,false);
 assert.equal(save('monthly','line',projects,projYear[2],yearBars).interval,'monthly');
-// Unknown/obsolete stored interval uses page defaults.
-assert.equal(restore(user,{interval:'invalid',plot_type:'invalid'},'weekly','bars')[0],noop);
+// The store (not values inherited from previously mounted components) is
+// authoritative: missing or invalid stored choices restore page defaults.
+const invalid = restore(user,{interval:'invalid',plot_type:'invalid'},'weekly','bars');
+assert.equal(invalid[0],'daily');
+assert.equal(invalid[1],'line');
+const absent = restore(projects,null,'yearly','line');
+assert.equal(absent[0],'monthly');
+assert.equal(absent[1],'bars');
+// Restoration also works when the components already have the desired values.
+const same = restore(talks,weekBars,'weekly','bars');
+assert.equal(same[0],noop);
+assert.equal(same[1],noop);
+assert.equal(save('daily','line',classifications,null,weekBars),noop);
+// Invalid stored values are never preserved as a Projects fallback.
+const invalidProjects = restore(projects,{interval:'invalid',plot_type:'invalid'},'monthly','bars');
+assert.equal(invalidProjects[2].fallback,false);
+const repaired = save('monthly','line',projects,invalidProjects[2],
+    {interval:'invalid',plot_type:'invalid'});
+assert.equal(repaired.interval,'monthly');
+assert.equal(repaired.plot_type,'line');
 """
     subprocess.run(
         ["node", "-e", script, str(path)],

@@ -151,9 +151,10 @@ period boundaries. `history_autoscale.js` rescales each metric independently.
 The metric pages share the ``shared-chart-interval`` and
 ``shared-chart-plot-type`` component IDs. ``page_components.py`` also mounts a
 ``shared-chart-page`` descriptor and ``shared-chart-ready`` marker, allowing the
-Dash clientside callbacks in ``chart_preferences.js`` to restore preferences
-when navigating. Unsupported choices fall back to the page default without
-replacing the saved preference; for example, Projects only supports Month and
+Dash clientside callbacks in ``chart_preferences.js`` to restore values
+from the app-level session ``dcc.Store`` when navigating and to save user
+selections. The radio controls have no separate persistence. Unsupported
+choices fall back to the page default without replacing the saved preference; for example, Projects only supports Month and
 Year. A new metric page using ``chart_controls()`` participates automatically.
 The window and graph IDs remain page-specific (``<source>-window`` and
 ``<source>-graph``).
@@ -177,6 +178,11 @@ and episode deep links.
   intervals behave as specified.
 - Zoom survives bin changes, line/bar switches, navigation and reload; the
   Visible time window control and Reset axes clear it intentionally.
+- Aggregation and chart-type choices persist across metric pages from the
+  shared session store, without independent component persistence; Projects
+  displays a supported fallback without replacing an unsupported saved choice.
+- Changing shared chart controls after opening an anomaly deep link does not
+  reapply the episode's original focus.
 - `test_page_specs.py`, `test_page_characterization.py`, relevant figure tests
   and JavaScript tests pass. Run Sphinx and update these guides.
 

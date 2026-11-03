@@ -50,6 +50,14 @@ def test_root_redirect_and_refresh_control():
         if node.get("props", {}).get("id") == "refresh-progress-poll"
     )
     assert fast_poll["props"]["disabled"] is True
+    # One app-level session store owns the chart preferences. Page radios are
+    # transient and are hydrated from this store on navigation.
+    preferences = next(
+        node
+        for node in components(layout.get_json())
+        if node.get("props", {}).get("id") == "shared-chart-preferences"
+    )
+    assert preferences["props"]["storage_type"] == "session"
 
 
 def test_refresh_progress_hides_after_success_and_shows_short_confirmation(monkeypatch):

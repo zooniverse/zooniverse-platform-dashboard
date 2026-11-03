@@ -55,8 +55,8 @@ class PageSnapshot(Protocol):
         Validated UTC coverage bounds and next-day boundary.
     last_modified : datetime.datetime
         Timestamp of the most recent published snapshot.
-    history_days : int or None
-        Requested historical window; zero means all available history.
+    history_days : int
+        Required collection window in days; zero means all available history.
     """
 
     first: date
@@ -154,10 +154,11 @@ def missing_snapshot_page(spec: PageSpec, message: str, *, include_provider: boo
 def chart_controls(spec: PageSpec) -> Component:
     """Render the configured window, aggregation and chart-type selectors.
 
-    Every ID is derived from ``spec.key`` and matches the existing callback
-    signatures. The shared control IDs and Dash session persistence retain interval and
-    chart type across metric pages. Unsupported intervals on Projects fall
-    back to Month without changing the persisted user preference.
+    Window control IDs derive from ``spec.key``; the aggregation and chart-type
+    radio IDs are shared across metric pages. Clientside callbacks restore
+    their values from the app-level session-scoped ``dcc.Store``. The radios themselves have no
+    persistence, preventing a second source of state. Unsupported intervals on
+    Projects fall back to Month without changing the saved preference.
 
     Parameters
     ----------
@@ -205,8 +206,6 @@ def chart_controls(spec: PageSpec) -> Component:
                         value=spec.default_interval,
                         inline=True,
                         className="history-radio-group",
-                        persistence=True,
-                        persistence_type="session",
                     ),
                 ],
                 className="registration-date-control",
@@ -220,8 +219,6 @@ def chart_controls(spec: PageSpec) -> Component:
                         value=spec.default_plot_type,
                         inline=True,
                         className="history-radio-group",
-                        persistence=True,
-                        persistence_type="session",
                     ),
                 ],
                 className="registration-date-control",

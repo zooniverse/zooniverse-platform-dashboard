@@ -97,8 +97,8 @@ def test_activity_page_controls_cards_and_graph_are_baselined(source, monkeypatc
         assert _options(control) == [(item.value, item.label) for item in expected]
         assert control.value == default
         if suffix != "window":
-            assert control.persistence is True
-            assert control.persistence_type == "session"
+            assert "persistence" not in control.to_plotly_json()["props"]
+            assert "persistence_type" not in control.to_plotly_json()["props"]
     assert _component_with_id(layout, "shared-chart-page").data["source"] == source
     assert _component_with_id(layout, "shared-chart-ready") is not None
     graph = _component_with_id(layout, f"{source}-graph")
@@ -124,8 +124,8 @@ def test_projects_page_controls_and_cards_are_baselined(monkeypatch):
         assert _options(control) == [(option.value, option.label) for option in expected]
         assert control.value == default
         if suffix != "window":
-            assert control.persistence is True
-            assert control.persistence_type == "session"
+            assert "persistence" not in control.to_plotly_json()["props"]
+            assert "persistence_type" not in control.to_plotly_json()["props"]
     assert _component_with_id(layout, "shared-chart-page").data["source"] == "projects"
     assert _component_with_id(layout, "shared-chart-ready") is not None
     assert _component_with_id(layout, "projects-graph") is not None

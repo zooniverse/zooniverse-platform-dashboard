@@ -69,8 +69,9 @@ class LaunchSnapshot:
 
     The daily series is **sparse**: every entry in :attr:`launches` has a
     positive count, and omitted dates represent zero launches *within the
-    snapshot's coverage*. The V2 format optionally records public display
-    names by date. Instances produced by :func:`load_launches` or
+    snapshot's coverage*. The canonical JSON format requires every nonzero
+    day to contain ``[date, count, public_names]``; ``public_names`` is always
+    an array but may be empty. Instances produced by :func:`load_launches` or
     :func:`publish_launches` satisfy the snapshot's exact schema and chronology
     rules; constructing the dataclass directly does not validate those rules.
 
@@ -91,8 +92,10 @@ class LaunchSnapshot:
         Increasing sequence of calendar dates and strictly positive approved
         launch counts, without explicit zero days.
     names_by_day : tuple[tuple[datetime.date, tuple[str, ...]], ...]
-        Optional sanitized public project titles for launch days; the number
-        of titles may be smaller than the total approved count.
+        Sanitized public project titles for launch days; the number of titles
+        may be smaller than the total approved count. In-memory instances may
+        omit these entries, but serialized snapshot rows always include a
+        names array (possibly empty).
 
     See Also
     --------
@@ -346,7 +349,8 @@ def _parse(doc: object) -> LaunchSnapshot:
     Returns
     -------
     :class:`LaunchSnapshot`
-        Parsed dates, counts and optional public titles from a valid document.
+        Parsed launch dates, counts and public-title arrays (possibly empty)
+        from a valid canonical document.
 
     Raises
     ------

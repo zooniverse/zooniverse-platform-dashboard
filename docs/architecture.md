@@ -119,10 +119,11 @@ behavior. No remote queries or new snapshot fields are required, and only
 the UTC viewport bounds are persisted for zoom.
 
 **Shared chart controls:** All four metric pages mount radio controls using the
-same Dash component IDs. Dash's built-in session persistence retains Line/Bars
-and aggregation preferences across navigation. An app-level ``dcc.Store`` and
-clientside callbacks synchronize these selections when a page mounts, without
-waiting for its Plotly figure. Each page's ``PageSpec`` defines its supported
+same Dash component IDs. The app-level session-scoped ``dcc.Store`` is the
+single authoritative source for Line/Bars and aggregation preferences.
+Clientside callbacks restore the radio values when a page mounts and save
+subsequent selections, without waiting for its Plotly figure. RadioItems
+have no independent persistence. Each page's ``PageSpec`` defines its supported
 intervals. On Projects, a saved Day/Week preference is displayed as Month but
 is not overwritten; explicitly choosing Year or another supported interval
 updates the shared choice. Visible-window presets remain page-specific.

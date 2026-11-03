@@ -62,9 +62,9 @@ class Snapshot:
     history_complete : bool
         Indicates an upstream full-history collection rather than an
         incomplete historical source response; defaults to ``False``.
-    history_days : int or None
+    history_days : int
         Requested history window: zero for all history, a positive daily
-        limit.
+        limit. The canonical snapshot always records this field.
     """
 
     source: str

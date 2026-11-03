@@ -37,9 +37,10 @@ A bounded variant additionally restricts `launch_date >= :start_inclusive`.
 The query returns one grouped row per date, not individual project records.
 Counts include all approved launches, but only currently non-private project
 `display_name` values are retrieved. No project IDs, owners, private titles or
-individual project timestamps are retrieved. The new V2 `project_launches.json`
-contains daily totals and optional public titles. Titles are bounded, validated, HTML-escaped in graph tooltips,
-and excluded from logs/anomaly models. Since titles are user-authored and project
+individual project timestamps are retrieved. The canonical `project_launches.json` stores only nonzero daily launch
+counts, each with a required array of currently public project titles; the
+array may be empty. Titles are bounded, validated, HTML-escaped in graph
+tooltips, and excluded from logs/anomaly models. Since titles are user-authored and project
 privacy can change, **do not distribute snapshots outside the access-controlled
 dashboard**; the next successful refresh replaces names according to current
 privacy flags.

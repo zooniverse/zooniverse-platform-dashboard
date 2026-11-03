@@ -80,9 +80,13 @@ cooldown if necessary.
 - Snapshots are published atomically and independently on the mounted volume.
   A failed source leaves its previous JSON intact; the generic status file
   shows partial failure without exposing credentials or raw server errors.
-- Each JSON records `last_modified_utc`, `history_days`, coverage, daily
-  counts and `history_complete` (`true` only for all-time requests). Missing
-  calendar buckets within the requested interval are filled with zero.
+- Every snapshot records `last_modified_utc`, `history_days`, and validated
+  UTC coverage. The three **activity** JSON snapshots contain consecutive
+  daily counts plus `history_complete` (`true` for all-time requests); missing
+  activity dates within the requested interval are zero-filled.
+  **Project-launch** JSON is sparse: each nonzero day has a date, approved
+  launch count and required array of public titles (which may be empty).
+  Missing launch dates represent zero only within the recorded coverage.
 - One dashboard instance must use one persistent, POSIX locking-capable
   volume; multiple isolated replicas are not supported.
 

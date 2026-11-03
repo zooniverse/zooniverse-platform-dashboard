@@ -174,7 +174,18 @@ def calendar_periods(snapshot: DailyAggregateSeries) -> tuple[CalendarPeriod, ..
         running.append(running[-1] + count)
 
     def sum_between(start: date, end: date) -> int:
-        """Sum consecutive daily counts using the validated prefix table."""
+        """Sum a fully covered UTC interval using the daily prefix table.
+
+        Parameters
+        ----------
+        start, end : datetime.date
+            Inclusive boundaries within the validated snapshot coverage.
+
+        Returns
+        -------
+        int
+            Total aggregate activity over the selected interval.
+        """
         left: int = (start - snapshot.first).days
         right: int = (end - snapshot.first).days + 1
         return running[right] - running[left]

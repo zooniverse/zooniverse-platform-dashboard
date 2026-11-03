@@ -212,3 +212,44 @@ def test_sparse_empty_coverage_is_zero_but_absent_coverage_does_not_invent_perio
             "monthly",
             coverage=(date(2026, 1, 1), date(2026, 2, 1)),
         )
+
+
+def test_episode_deep_link_does_not_refocus_after_shared_control_changes(monkeypatch):
+    """Changing a shared chart control must not reactivate an episode deep link."""
+    pytest.importorskip("dash")
+    from types import SimpleNamespace
+
+    from zooniverse_dashboard import ui
+
+    # Test the actual registered callback body without registering duplicate
+    # Dash callbacks or requiring a running application/request context.
+    monkeypatch.setattr(ui, "callback", lambda *args, **kwargs: lambda fn: fn)
+    update = ui.register_history_callback("users")
+    event = {
+        "id": "episode-1",
+        "source": "users",
+        "start": "2026-05-01",
+        "end": "2026-05-02",
+    }
+    monkeypatch.setattr(ui, "event_by_id", lambda event_id, *, source: event)
+    monkeypatch.setattr(ui, "load_snapshot", lambda source: object())
+    monkeypatch.setattr(ui, "_load_optional_launches", lambda source: None)
+    monkeypatch.setattr(ui, "history_figure", lambda snapshot, **kwargs: kwargs["focus_event"])
+
+    for triggered, should_focus in (
+        ({}, True),  # Initial render from a deep link.
+        ({"users-route.search": "users-route"}, True),
+        ({"users-window.value": "users-window"}, False),
+        ({"shared-chart-interval.value": "shared-chart-interval"}, False),
+        ({"shared-chart-plot-type.value": "shared-chart-plot-type"}, False),
+        (
+            {
+                "users-route.search": "users-route",
+                "shared-chart-interval.value": "shared-chart-interval",
+            },
+            True,  # An actual route change takes precedence.
+        ),
+    ):
+        monkeypatch.setattr(ui, "ctx", SimpleNamespace(triggered_prop_ids=triggered))
+        result = update("?episode=episode-1", "90", "weekly", "bars")
+        assert (result is event) is should_focus

@@ -179,7 +179,18 @@ def project_metrics(snapshot: LaunchSnapshot) -> tuple[ProjectMetric, ...]:
     )
 
     def sum_between(start: date, end: date) -> int:
-        """Sum the sparse approved launches in a fully covered interval."""
+        """Sum approved launches over a fully covered calendar interval.
+
+        Parameters
+        ----------
+        start, end : datetime.date
+            Inclusive UTC bounds, already checked against snapshot coverage.
+
+        Returns
+        -------
+        int
+            Approved launch count, including zero for empty covered intervals.
+        """
         return sum(value for day, value in snapshot.launches if start <= day <= end)
 
     metrics: list[ProjectMetric] = [

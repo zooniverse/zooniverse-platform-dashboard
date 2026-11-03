@@ -37,7 +37,8 @@ project titles. Collection and validation details are documented in
 - **Shared display preferences:** Line/Bars and supported grouping choices
   carry between metric pages within a browser tab. If Day or Week is selected
   on an activity page, Projects uses Month without replacing that saved
-  preference; explicitly selecting Month or Year on Projects updates it.
+  preference. Changing Projects to a different supported grouping (such as
+  Year) updates the shared selection.
 - **Shared zoom:** the selected absolute UTC range persists when switching
   monthly/yearly, bar/line, or navigating to Users, Classifications and Talk.
   Explicitly changing the visible-window preset or resetting Plotly axes clears
