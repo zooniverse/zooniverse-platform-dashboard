@@ -1,31 +1,26 @@
-# Dash for experienced Python developers
+# Quick look at Dash
 
 [Dash](https://dash.plotly.com/) is a Python framework for interactive web
-applications. It is built around **component trees** (the page layout) and
-**reactive callbacks** (functions whose inputs and outputs are component
-properties). Dash renders components in the browser and marshals callback
-property values between the browser and Python. You do **not** need to write
-frontend JavaScript for ordinary dropdowns, buttons, or plots.
+applications. Python components define the layout, and callbacks connect changes
+in component properties to updates elsewhere in the page. Dash renders the
+component tree in a browser and exchanges callback values with the Python
+server. Plotly supplies the interactive figures.
 
-This page is a short orientation, not a full framework tutorial. The relevant
-official references are [Layout](https://dash.plotly.com/layout),
+Framework references: [Layout](https://dash.plotly.com/layout),
 [Callbacks](https://dash.plotly.com/basic-callbacks),
 [Interactive graphs](https://dash.plotly.com/interactive-graphing),
 [Multi-page apps](https://dash.plotly.com/urls), and
 [CSS/JavaScript assets](https://dash.plotly.com/external-resources).
 
-## The three essential concepts
+## Layout, callbacks, and figures
 
-**Layout.** A Dash layout is a tree of Python component instances. `dash.html`
-provides HTML primitives; `dash.dcc` supplies controls and `dcc.Graph`.
-A component's **ID** is the address used by callbacks. In this project, the
-shared page builder creates IDs from the page key (for example,
-`users-interval` and `users-graph`). ID stability matters: renaming one may
-break callbacks and browser JavaScript even when the page still renders.
+**Layouts** are trees of Python components. `dash.html` represents HTML elements;
+`dash.dcc` provides controls, browser stores, and `dcc.Graph`. Component IDs
+connect the layout to callbacks. In this dashboard, the shared page renderer
+derives IDs from the page key, such as `users-interval` and `users-graph`.
 
-**Callbacks.** A callback declares `Input`, `Output`, and optionally `State`
-properties. When an input changes, Dash calls the function to compute output
-properties. A tiny, illustrative callback looks like this:
+**Callbacks** map one or more `Input` properties to `Output` properties;
+`State` supplies values without triggering execution. For example:
 
 ```python
 from dash import Input, Output, callback
@@ -35,78 +30,78 @@ def update_label(value: str) -> str:
     return f"Selected: {value}"
 ```
 
-The example is **not** a project callback. Here the real page callback
-`ui.register_history_callback("users")` reads a validated snapshot and
-returns a Plotly figure when controls change; `projects_ui.register_projects_callback()`
-handles Projects. Callback registration happens when Dash imports the page
-modules. Callback functions can be run multiple times, so they must not mutate
-shared module state or fetch large remote datasets on navigation.
+Dash invokes the callback when `example-choice.value` changes. In this
+application, `ui.register_history_callback("users")` registers the callbacks
+that read a validated activity snapshot and return Plotly figures;
+`projects_ui.register_projects_callback()` provides the corresponding Projects
+behavior. These callbacks run separately from the collection pipeline.
 
-**Plots.** `plotly.graph_objects.Figure` describes traces, axes, styling,
-hover data and metadata. `dcc.Graph(figure=figure)` renders it. The browser
-exposes plot interaction events; our date-range persistence and Y-autoscaling
-are implemented with lightweight JavaScript because Plotly's grouped monthly
-bars have numeric X positions while lines use UTC dates.
+**Figures** use `plotly.graph_objects.Figure` to represent traces, axes, hover
+content, and layout metadata. A `dcc.Graph` displays a figure and exposes
+interaction events. The dashboard adds JavaScript for shared time-range zoom
+and automatic Y-axis adjustment, where browser-side Plotly events are more
+appropriate than additional server callbacks.
 
-## Where Dash lives in *this* repository
+## Dash in this repository
 
-- The development launcher is root `app.py`. Production Gunicorn serves the
-  Flask WSGI `server` exported by the package's `app.py`.
-- `zooniverse_dashboard.app.create_app()` creates `Dash(..., use_pages=True)`
-  and sets `pages_folder` and `assets_folder`. It owns the global header,
-  navigation, refresh button, progress stores/polling, and `/healthz` endpoint.
-- Modules in `pages/` call `register_page(__name__, path=..., name=..., order=...)`.
-  Dash Pages discovers them, and `page_container` places the selected page in
-  the global layout. The registered route can expose a `layout()` function.
-- `page_specs.py` declares the current four chart page variants:
-  available cards, windows, bins, chart types, optional layers and defaults.
-  `page_components.py` renders common structure from those specifications.
-- `ui.py` owns activity-specific figures and callbacks; `projects_ui.py` owns
-  the launch-rate figure/callback. `chart_data.py`, `chart_geometry.py`, and
-  `figure_layout.py` perform calendar aggregation/axis calculations.
-- `pages/anomalies.py` has its own page and callback: it is an episode-inspection
-  view, not another metric chart driven by `PageSpec`.
-- `assets/styles.css` and `assets/*.js` load automatically. `00_history_runtime.js`
-  registers the common graph lifecycle; `history_zoom.js`,
-  `history_autoscale.js`, and `episode_pointer.js` add browser behavior.
+- Root `app.py` starts the development application. Production Gunicorn serves
+  the Flask WSGI `server` exported by that launcher.
+- `zooniverse_dashboard.app.create_app()` configures Dash Pages, the global
+  header, navigation, refresh controls, progress polling, and `/healthz`.
+- `pages/` contains routes registered with `register_page()`; Dash's
+  `page_container` displays the selected layout.
+- `page_specs.py` declares the cards, windows, aggregation intervals, chart
+  styles, defaults, and permitted overlays for the four metric pages.
+  `page_components.py` renders their shared structure.
+- `ui.py` generates the Users, Classifications, and Talk activity figures.
+  `projects_ui.py` generates monthly/yearly approved-launch figures for the
+  [Projects page](projects.md). Their aggregation and axis helpers are in
+  `chart_data.py`, `chart_geometry.py`, and `figure_layout.py`.
+- `pages/anomalies.py` provides a separate inspection layout and callbacks,
+  outside the metric-page specification.
+- `assets/styles.css` and `assets/*.js` load automatically. The shared
+  `00_history_runtime.js` attaches graph listeners used by
+  `history_zoom.js`, `history_autoscale.js`, and `episode_pointer.js`.
 
-## Trace a concrete user interaction
+## Interaction flow
 
-When a user opens `/users`, Dash selects the page's `layout()` function. That
-calls `ui.layout_for("users")`, which reads `users.json`, calculates KPI periods,
-and hands them to `build_metric_page(PAGE_SPECS["users"], ...)`. The graph
-callback constructs `history_figure()` from the saved snapshot and selected
-controls. Changing **Month** to **Year** triggers a callback; it does *not*
-call PostgreSQL.
+Opening `/users` invokes `pages/users.py`'s layout, which calls
+`ui.layout_for("users")`. That loads `users.json`, calculates the summary cards,
+and passes the results and `PAGE_SPECS["users"]` to
+`page_components.build_metric_page()`. The registered graph callback constructs
+`ui.history_figure()` from the same snapshot and selected controls. Changing
+an aggregation interval updates the figure without querying Panoptes.
 
-When a user zooms, Plotly emits a relayout event. The browser assets translate
-that range into absolute UTC timestamps and store it in **session storage** for
-this browser tab. Another chart can restore that interval, even if it uses
-numeric calendar slots. `layout.meta.history_zoom` describes the coverage and
-period boundaries used for conversion. The Y-axis is recalculated per metric.
-The global refresh button is different: it schedules a detached Python worker
-and polls saved status; the long-running collection never executes inside an
-HTTP callback.
+The `/projects` route follows the analogous path through
+`projects_ui.projects_layout()` and `projects_ui.projects_figure()`, using the
+sparse `project_launches.json` snapshot. It offers only monthly and yearly
+aggregation and does not draw a second launch-marker layer. Activity charts
+can display those launches as dated overlays; see [Projects](projects.md).
 
-## Common Dash pitfalls in this application
+Plotly emits a relayout event when the horizontal range changes. The browser
+assets translate that range to absolute UTC dates and store it in the tab's
+`sessionStorage`. `layout.meta.history_zoom` provides the period boundaries
+needed to translate between date axes and equal-width numeric calendar slots.
+The saved viewport carries across activity and Projects pages; each chart
+scales its Y-axis independently.
 
-- **Registration occurs at import time.** A new page module needs a
-  `register_page` call and correct callback registration. Avoid circular
-  imports and side effects outside Dash setup.
-- **IDs are public contracts.** A page key, `*-graph` class, callback input,
-  link, or JavaScript selector may depend on the same ID or trace metadata.
-- **State is per browser, not a Python global.** Use Dash properties and
-  `dcc.Store` for browser state; `sessionStorage` is used only for the chart
-  viewport, never for credentials or raw source data.
-- **Optional layers still need data validation.** `PageSpec.has_layer(...)`
-  permits a trace, but does not make a snapshot available or authorize a
-  remote query. Missing optional launch markers must not break activity charts.
-- **Dynamic routing has a lifecycle.** Navigation can replace graph DOM nodes.
-  Browser listeners are attached idempotently by the shared JS runtime.
-- **A Graph's truth value is not existence.** In tests use `is not None` when
-  looking up childless Dash components and use `getattr(component, "children", None)`
-  when walking a component tree.
+Refreshing is a separate path: the global refresh callback admits a detached
+Python worker and polls saved progress. Remote collection and anomaly fitting
+do not run in HTTP callbacks.
 
-To extend the dashboard, start with [Adding and changing pages](extending_pages.md).
-For the framework itself, follow the linked official Dash manuals rather than
-reproducing them here.
+## Integration details
+
+- **Page registration:** `register_page()` executes when a route module is
+  imported. Registration and callback imports need to avoid cycles.
+- **Stable component IDs:** callbacks, JavaScript selectors, links, and graph
+  metadata depend on specific IDs; changes may span Python and browser assets.
+- **Browser state:** Dash components and `dcc.Store` carry reactive state;
+  `sessionStorage` holds only the shared UTC viewport, not source records or
+  credentials.
+- **Optional layers:** `PageSpec.has_layer()` governs eligibility; the figure
+  builder still supplies validated data and the actual trace.
+- **Page navigation:** Dash replaces graph elements when routes change. The
+  shared JavaScript lifecycle attaches listeners to newly created graphs
+  without duplicating them.
+
+For application-specific changes, see [Adding or changing pages](extending_pages.md).

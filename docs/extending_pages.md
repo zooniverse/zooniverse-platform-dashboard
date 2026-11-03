@@ -2,15 +2,17 @@
 
 The four **metric pages** use the same basic layout. Their differences are
 expressed as `PageSpec` data, source-specific KPI calculations and traces.
-The **Anomalies** page is a different kind of view and is registered directly
-through Dash Pages. Do not copy a whole page file just to change cards, bins,
-or graph layers.
+The **Anomalies** page is an inspection view, registered separately through
+Dash Pages. Existing metric-page controls and layouts are configured centrally
+rather than copied for each route.
 
-Start with [Dash essentials](dash_development.md) if you haven't worked with
-Dash, then read `page_specs.py`, `page_components.py`, `ui.py`, `projects_ui.py`
-and the existing `pages/*.py` modules. The relevant functions are
+Related framework details are in [Quick look at Dash](dash_development.md).
+The main implementation modules are `page_specs.py`, `page_components.py`,
+`ui.py`, `projects_ui.py`, and `pages/*.py`. The relevant functions are
 `ui.layout_for()`, `ui.history_figure()`, `ui.register_history_callback()`,
 `projects_ui.projects_layout()`, and `projects_ui.projects_figure()`.
+The [Projects guide](projects.md) documents the existing monthly/yearly
+launch page and its snapshot semantics.
 
 ## Choose the scope of your change
 

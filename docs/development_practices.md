@@ -1,7 +1,7 @@
 # Development conventions and verification
 
-This repository assumes advanced Python knowledge. The conventions below are
-specific to its operational model and should be followed even for small changes.
+These conventions describe the application’s module boundaries, data
+contracts, and verification strategy.
 
 ## Responsibility boundaries
 

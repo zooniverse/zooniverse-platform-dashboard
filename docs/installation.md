@@ -33,9 +33,10 @@ On Windows use `.venv\\Scripts\\activate` instead of `source`; the runtime uses
 POSIX file locks, so local collection is designed for macOS/Linux or a Linux
 container (Windows developers can use WSL2).
 
-The extras separate concerns: `dev` for tests and linting, `docs` for Sphinx,
-`server` for Gunicorn, and `analysis` for offline NB2 calculations. The web refresh worker runs as a separate Python interpreter using the same
-installed project and environment as the web server. There is no separate research package required.
+The extras separate concerns: `dev` for local testing, `docs` for Sphinx,
+`server` for Gunicorn, and `analysis` for offline NB2 calculations. The web
+refresh worker uses the same installed project and Python environment as the
+web server.
 
 ## 2. Configure local settings
 

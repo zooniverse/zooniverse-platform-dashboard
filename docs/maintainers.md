@@ -1,125 +1,120 @@
 # Maintainer handbook
 
-This handbook is for an experienced Python developer inheriting the Zooniverse
-Platform Dashboard. Familiarity with Dash, Plotly, or the project's history is
-**not** assumed. The codebase is intentionally small enough to follow without a
-separate service platform, but several boundaries protect production data and
-must be understood before making changes.
+The Zooniverse Platform Dashboard presents aggregate registration, classification,
+Talk, and project-launch activity. It uses a single Dash application, saved JSON
+snapshots, and an offline anomaly catalog. This guide describes the relationships
+between those components and the constraints that matter when changing them.
 
-## What you own
+## Application structure
 
-The dashboard offers four chart pages (Users, Classifications, Talk, Projects),
-an Anomalies page, and an operator-triggered refresh. Its purpose is to display
-**aggregate platform activity**, not track volunteers. A successful HTTP health
-check does not imply that upstream data are fresh. No automatic collection or
-incident-response workflow is configured.
+The dashboard has four metric pages—**Users**, **Classifications**, **Talk**, and
+**Projects**—plus an **Anomalies** inspection page. The first three display
+continuous daily activity counts; Projects displays approved launches grouped
+by month or year. The Anomalies page reports statistical episodes computed from
+the three activity streams, not project launches.
 
-**Read first:** [Architecture](architecture.md) explains the runtime boundaries;
-[Dash for Python developers](dash_development.md) explains the web framework;
-[Operations](operations.md) explains refresh, deployment and recovery; and
-[Privacy](privacy.md) sets the nonnegotiable data-access rules.
+The [Architecture](architecture.md) guide describes the data flow, the
+[Projects](projects.md) guide documents launch semantics, and
+[Anomaly detection](anomaly_detection.md) covers the statistical model.
+[Quick look at Dash](dash_development.md) explains the presentation framework;
+[Operations](operations.md) covers refresh, deployment, and recovery.
 
-## Mental model: follow one count through the application
+## Data flow
 
-1. An authorized operator clicks **Refresh data** or runs `refresh-data`.
-2. `refresh_job.py` admits and runs a detached browser job; the CLI can run the
-   pipeline directly. `refresh.py` obtains the shared POSIX lock, applies the
-   60-minute cooldown and invokes the configured collectors.
-3. `sources.py` fetches **daily registration counts** with read-only SQL;
-   `eras.py` fetches Classifications/Talk aggregates over HTTPS; and
-   `project_launches.py` fetches approved launches with public titles.
-4. `snapshots.py` and `project_launches.py` validate their respective formats.
-   `storage.py` atomically publishes files; each source may fail independently.
-5. `pipeline.py` then requests an offline anomaly rebuild through
-   `anomalies/catalog.py` and `anomalies/compute.py`. The catalog uses activity
-   snapshots only; it never analyzes project titles or launch counts.
-6. `app.py` constructs the global Dash shell. `pages/` registers routes;
-   `page_specs.py` declares controls/cards/layers; `page_components.py` renders
-   common structure; `ui.py` and `projects_ui.py` calculate Plotly figures.
-7. Browser assets under `assets/` provide zoom persistence, axis autoscaling,
-   episode navigation, and styling. Page navigation and chart interactions
-   read *saved files*, not upstream services.
+1. An operator triggers **Refresh data** or runs `refresh-data`. A browser
+   request starts a detached worker via `refresh_job.py`; the CLI runs the
+   collection pipeline directly.
+2. `refresh.py` serializes collection with a POSIX lock and applies the
+   60-minute cooldown. `sources.py` retrieves daily Panoptes registration
+   counts; `eras.py` retrieves Classifications and Talk aggregates; and
+   `project_launches.py` retrieves approved launch counts and public titles.
+3. `snapshots.py` and `project_launches.py` validate their respective JSON
+   schemas. `storage.py` publishes files atomically. A failed source does not
+   replace that source's last valid snapshot or prevent other sources from
+   completing.
+4. `pipeline.py` invokes the offline NB2 analysis in `anomalies/compute.py`
+   and publishes a revision-aware catalog through `anomalies/catalog.py`.
+5. `app.py` constructs the Dash shell; `pages/` registers routes.
+   `page_specs.py` declares card, control, and optional-layer choices, while
+   `page_components.py` renders common layouts. `ui.py` and `projects_ui.py`
+   construct the source-specific figures and callbacks.
+6. JavaScript and CSS in `assets/` handle graph zoom, autoscaling, episode
+   interactions, and styling. Page rendering reads saved snapshots only.
 
-The key dependency rule is **remote data → validated snapshots → offline
-analysis → display**. Do not move remote queries or model fitting into Dash
-callbacks to make a new page easier to implement.
+The dependency direction is **remote aggregates → validated snapshots → offline
+analysis → dashboard**. Neither page navigation nor Plotly interactions perform
+upstream collection or model fitting.
 
-## Repository map
+## Module map
 
-| Location | Responsibility and modification boundary |
+| Location | Responsibility |
 |---|---|
-| `src/zooniverse_dashboard/config.py`, `collection_config.py` | Runtime settings, data directory, date-limit override |
-| `sources.py`, `eras.py`, `project_launches.py` | Source-specific, privacy-constrained retrieval and validation |
-| `snapshots.py`, `storage.py` | Canonical activity snapshot schema and atomic publication |
-| `refresh.py`, `refresh_job.py`, `pipeline.py` | Serialized collection, durable job progress and offline rebuild |
-| `anomalies/compute.py`, `anomalies/catalog.py` | Statistical scores, episodes and revision-aware saved catalog |
-| `page_specs.py`, `page_components.py` | Immutable page choices and shared Dash layout |
-| `periods.py`, `chart_data.py`, `projects_data.py` | Coverage-aware calendar summaries and grouping |
-| `chart_geometry.py`, `figure_layout.py` | Calendar-axis and common Plotly layout primitives |
-| `ui.py`, `projects_ui.py`, `pages/` | Metric-specific figures, route registration and callbacks |
-| `assets/` | JavaScript graph behaviors and CSS automatically served by Dash |
-| `tests/`, `docs/`, `scripts/`, `deploy/` | Verification, handbooks, diagnostics, local Compose setup |
+| `config.py`, `collection_config.py` | Runtime settings, storage path, history window |
+| `sources.py`, `eras.py`, `project_launches.py` | Source-specific aggregate collection and validation |
+| `snapshots.py`, `storage.py` | Activity schema and atomic persistence |
+| `refresh.py`, `refresh_job.py`, `pipeline.py` | Collection, worker status, offline analysis orchestration |
+| `anomalies/compute.py`, `anomalies/catalog.py` | NB2 scoring, episode construction, saved catalog |
+| `page_specs.py`, `page_components.py` | Declarative metric-page configuration and shared Dash layout |
+| `periods.py`, `chart_data.py`, `projects_data.py` | Calendar summaries, coverage rules, grouping |
+| `chart_geometry.py`, `figure_layout.py` | Shared Plotly axis geometry and layout |
+| `ui.py`, `projects_ui.py`, `pages/` | Metric figures, callbacks, and Dash routes |
+| `assets/` | Browser graph behavior and CSS |
+| `tests/`, `docs/`, `scripts/docker_smoke.sh`, `deploy/` | Verification, documentation, Docker smoke test, Compose deployment |
 
-The API pages are generated from source docstrings, but they are not a substitute
-for the design rationale and procedures in these guides.
+Source docstrings supply the generated API reference. The guides describe the
+cross-module contracts and operational behavior.
 
-## Nonnegotiable design decisions
+## Architectural constraints
 
-- **No PII:** keep query projections restricted to aggregate counts and the
-  currently public, bounded project titles. Never store or log identities,
-  email addresses, IPs, individual classification rows, tokens or raw errors.
-- **Read-only upstreams:** no SQL writes; no live requests from UI callbacks.
-  Validate types, bounds, continuity, response size and source-specific coverage.
-- **One canonical format per snapshot:** this app does not maintain old JSON
-  readers or migration chains. Schema changes require an explicit regeneration
-  and deployment procedure; avoid silently interpreting corrupted files.
-- **Single instance / POSIX volume:** job locks, cooldown, atomic replacement,
-  snapshot persistence and status depend on a shared locking-capable filesystem.
-  Do not horizontally scale without redesigning coordination/storage.
-- **Incomplete means unknown:** a partial calendar period is not a full
-  period; an uncovered historical interval is not zero. Sparse project launch
-  days can be interpreted as zero only inside validated launch coverage.
-- **Statistical flags are not incidents:** NB2 forecasts and rarity rules help
-  prioritize investigation; they cannot establish cause, attack, or outage.
+- **Aggregate-only access.** Collectors retrieve approved counts and narrowly
+  bounded public project titles. They do not retrieve volunteer identities,
+  individual classifications, owner records, or private project titles. See
+  [Privacy](privacy.md).
+- **Read-only upstreams.** Data collection uses read-only Panoptes SQL or
+  aggregate ERAS endpoints. Dash callbacks do not make upstream requests.
+- **Canonical snapshots.** Each saved data type has one supported schema.
+  Schema changes require a coordinated deployment and recollection, rather
+  than old-format readers or implicit migrations.
+- **Single-instance coordination.** Locks, cooldowns, worker state, and atomic
+  writes rely on a shared POSIX filesystem. Multiple replicas would require
+  redesigning coordination and persistence.
+- **Explicit coverage.** A partial calendar period is not extrapolated; an
+  uncovered period is unavailable rather than zero. Missing days in sparse
+  project-launch data represent zero only within validated coverage.
+- **Statistical interpretation.** Anomaly episodes indicate unusual behavior
+  relative to a model, not an established cause or operational incident.
 
-## First day as maintainer
+## Local verification and deployment
 
-1. Read [Installation](installation.md) and work on macOS/Linux (or WSL2).
-   Install `.[dev,docs,analysis,server]`. Use approved read-only credentials
-   only if you need to refresh live aggregates.
-2. Start `python app.py` against existing *local* snapshots. Missing snapshots
-   produce the expected empty state. Inspect all four charts, anomaly links,
-   refresh status, and shared zoom. Do not trigger a real refresh casually:
-   it has a cooldown, upstream cost and network/privacy requirements.
-3. Read [Adding and changing pages](extending_pages.md), [Adding a data
-   source](extending_data_sources.md), or [Extending anomaly detection](extending_anomalies.md)
-   before implementing a feature in those areas.
-4. For a release, run `bash scripts/docker_smoke.sh <image>` after building it,
-   then test an authorized collection, anomaly rebuild, persistence/restart, and
-   actual browser behavior. Coordinate any GHCR publication with repository
-   maintainers; pushing a release tag may publish a container image.
+The [Installation](installation.md) guide covers environment setup and local
+snapshot initialization. With saved snapshots present, `python app.py` serves
+all dashboard pages without requiring upstream connections.
 
-## Ownership and change control
+For presentation changes, verify all four metric pages and Anomalies, including
+missing-snapshot states, chart aggregation and type controls, episode links,
+and shared zoom. For data or analysis changes, use the synthetic tests and
+then an authorized refresh and anomaly rebuild where applicable. The
+[Development conventions](development_practices.md) guide maps changes to
+relevant tests.
 
-There is **one authoritative deployed version**, not independently supported
-client installations. This permits removing obsolete implementation/API paths,
-but *not* skipping careful deployment transitions. If on-disk schema changes,
-stop running workers, decide which generated files need to be archived or
-cleared, deploy, and recollect from authorized upstreams. See the reset
-procedure in [Installation](installation.md). Preserve the configuration
-file unless the history selection itself is intentionally changing.
+For a container release, `scripts/docker_smoke.sh` verifies startup, routes,
+non-root execution, persistence, and restart. A deployment check additionally
+covers authenticated access, upstream connectivity, refresh results, and
+snapshot persistence. Pushing a version tag may trigger GHCR publication;
+release coordination is described in [Operations](operations.md).
 
-Make reviewable commits: a source or model change, its tests, its docs, and any
-operator migration steps belong together. Keep credentials and snapshot files
-out of Git. A new contributor should be able to answer **what changed, why it
-is safe, how to test it, and how to recover** from the pull request alone.
+There is one authoritative deployed version rather than independently
+supported local installations. For a snapshot-schema change, stop workers,
+identify generated files to clear or replace, deploy, and recollect from
+approved upstreams. Preserve `collection_config.json` unless the history
+selection is changing. The [Installation](installation.md) guide documents
+the reset procedure.
 
-## More detailed guides
+## Extension guides
 
-- [Code conventions and verification](development_practices.md)
-- [Dash essentials and this app's callback flow](dash_development.md)
-- [Adding/changing pages, controls, layers and Plotly behavior](extending_pages.md)
-- [Adding another source and snapshot](extending_data_sources.md)
-- [Adding another anomaly criterion or model](extending_anomalies.md)
-- [Operations, failure handling and deployment](operations.md)
-- [Numerical detector rationale](anomaly_detection.md)
+- [Quick look at Dash](dash_development.md) — layout, callbacks, routing, and graph state
+- [Development conventions](development_practices.md) — module contracts, docstrings, and verification
+- [Adding or changing pages](extending_pages.md) — cards, controls, figures, and layers
+- [Adding an aggregate data source](extending_data_sources.md) — collection, schemas, and refresh
+- [Extending anomaly identification](extending_anomalies.md) — model and catalog integration
+- [Operations](operations.md) — deployment, failure handling, and recovery

@@ -7,9 +7,9 @@ Markdown alongside the reStructuredText API index; Napoleon interprets the
 NumPy-style sections in source docstrings. The ``release`` setting is kept in
 sync with the distribution version in ``pyproject.toml`` when a release is cut.
 
-The root development launcher ``app.py`` and the opt-in script under ``scripts``
-are outside AutoAPI's package scan. Their operator documentation lives in the
-installation and command-line guides instead.
+The root development launcher ``app.py`` and Docker smoke-test script are
+outside AutoAPI's package scan. Their usage is described in the installation
+and operations guides.
 """
 
 from pathlib import Path

@@ -29,10 +29,11 @@ Before writing code, document:
 - **Operator behavior:** failure messages, partial refresh, cooldown, status,
   data freshness, and how to rebuild after an upgrade.
 
-The privacy rule is not negotiable: **do not pull individual activity rows into
-Python to aggregate them later**. Panoptes queries must return grouped counts,
-using fixed SQL shapes, bound parameters and a read-only role. The project's
-special public-title allowance does not extend to other fields or sources.
+Collectors must retain the aggregate-only data boundary: Panoptes queries
+return grouped counts using fixed SQL shapes, bound parameters, and a read-only
+role, rather than transferring individual activity rows for Python aggregation.
+The project-launch public-title allowance does not extend to other fields or
+sources.
 
 ## Trace existing implementations
 

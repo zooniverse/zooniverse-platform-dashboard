@@ -1,18 +1,33 @@
 # Projects: approved launch history
 
-The **Projects** page presents the number of **approved Panoptes project
-launches** by **Month** or **Year**, based on the existing
-`project_launches.json` snapshot. It does **not** add a new Panoptes query or
-modify the existing refresh pipeline.
-for the exact approved-launch definition and snapshot validation rules. A
-project's `created_at` is *not* its launch date.
+The **Projects** page presents approved Panoptes project launches by
+**Month** or **Year**. It reads the same `project_launches.json` snapshot
+used for launch markers on the Users, Classifications, and Talk pages. It does
+not query Panoptes during page navigation.
+
+## Launch definitions and snapshot data
+
+The collector in `project_launches.py` counts projects where
+`launch_approved IS TRUE` and `launch_date IS NOT NULL`, grouped by
+`launch_date::date`. The date comes from the Panoptes launch field, not
+`created_at` or the first classification. Counts include approved projects
+regardless of their current privacy status. The snapshot stores dates and
+counts, plus bounded display names for projects currently marked non-private;
+private project titles and project-owner details are excluded.
+
+The snapshot uses the canonical `ZOONIVERSE_PROJECT_LAUNCHES_V2` format.
+Launch entries are sparse: dates with no approved launches are omitted, and
+missing dates represent zero only within the snapshot's validated coverage.
+Public project names are available to launch-marker tooltips on activity
+charts; the Projects chart displays launch totals rather than individual
+project titles. Collection and validation details are documented in
+`project_launches.py` and [Architecture](architecture.md).
 
 ## Page controls and chart interpretation
 
 - **Group by:** Month (default) or Year only. A calendar period's total is
-  the sum of daily launches with `launch_approved = TRUE` as recorded by the
-  latest collection. This is **projects per period**, not a percentage or an
-  inferred continuous daily rate.
+  the sum of approved launches recorded on dates in that calendar period.
+  This is **projects per period**, not a percentage or a continuous daily rate.
 - **Chart type:** Bars (default) or Line. Calendar months/years have evenly
   spaced bar slots, with appropriately labelled X-axis ticks. Line charts
   use a UTC date axis, retaining the same monthly/yearly totals.
@@ -47,10 +62,10 @@ changed since collection.
 
 The page reads only the validated JSON file, never Panoptes or ERAS during
 navigation, hovering, grouping or zooming. Only approved daily counts are
-used in these aggregate charts; stored public project titles are not displayed
-on the Projects graph. It does not affect anomaly analysis. Invalid/missing
-snapshots show an empty-state notice directing operators to **Refresh data**;
-no individual project fields or private titles are queried for this page.
+used in these aggregate charts. Project titles appear only in the launch-marker
+tooltips on activity charts, with HTML escaping. The Projects page does not
+affect anomaly analysis. Invalid or missing snapshots display an empty-state
+notice directing operators to **Refresh data**.
 
 For full launch history starting with the earliest observed approved launch,
 configure `ANALYTICS_HISTORY_DAYS=0` and refresh. A restricted collection

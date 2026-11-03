@@ -3,8 +3,7 @@
 **Understand how the Zooniverse platform is being used, without examining individual volunteers.**
 
 The Zooniverse Platform Dashboard is an internal, lightweight application for
-exploring platform-wide activity over time. At first glance, the dashboard
-provides:
+exploring platform-wide activity over time. The dashboard includes:
 
 - **Users, Classifications, and Talk pages:** seven UTC-calendar KPI periods
   (yesterday; current/previous week, month, and year), a pannable history
@@ -22,19 +21,19 @@ provides:
 **Running the service:** [Installation](installation.md),
 [Command-line reference](command_line.md), [Operations](operations.md), and
 [Privacy](privacy.md) cover setup, refreshes, deployment and recovery.
-The [Architecture](architecture.md), [Anomaly model](anomaly_detection.md),
-and [Projects page](projects.md) explain data semantics in depth.
+The [Architecture](architecture.md) and [Anomaly model](anomaly_detection.md)
+explain data semantics; [Projects](projects.md) covers launch dates, public
+titles, and the month/year charts.
 
-**New maintainer:** start with the [Maintainer handbook](maintainers.md),
-then [Dash for Python developers](dash_development.md) and
-[Development conventions](development_practices.md). These explain *why* the
-modules are separated and how to make safe changes without assuming prior Dash
-experience.
+**Maintenance and implementation:** [Maintainer handbook](maintainers.md),
+[Quick look at Dash](dash_development.md), and
+[Development conventions](development_practices.md) describe the module
+boundaries, application framework, and verification contracts.
 
-**Extending the application:** see [Adding a page](extending_pages.md),
-[Adding a data source](extending_data_sources.md), and
-[Extending anomaly identification](extending_anomalies.md). Each guide names
-real integration points, tests, and privacy/reliability constraints.
+**Extending the application:** [Adding or changing pages](extending_pages.md),
+[Adding an aggregate data source](extending_data_sources.md), and
+[Extending anomaly identification](extending_anomalies.md) identify the
+relevant modules, interfaces, and validation requirements.
 
 ```{toctree}
 :maxdepth: 1

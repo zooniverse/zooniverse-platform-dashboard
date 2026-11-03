@@ -7,9 +7,9 @@ two independent detectors. Users get an additional calendar-holiday design;
 Classifications and Talk use the simpler design. The Anomalies page reports
 statistical inspection candidates, not incidents or causal diagnoses.
 
-For the existing mathematical model, numerical assumptions and limitations,
-read [Anomaly detection](anomaly_detection.md) first. This page is a practical
-extension guide for Python developers, not a replacement for model validation.
+The existing mathematical model and its limitations are documented in
+[Anomaly detection](anomaly_detection.md). Changes to scoring or episode
+selection require corresponding model validation.
 
 ## Current data flow
 
